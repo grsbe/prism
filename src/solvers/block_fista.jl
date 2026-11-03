@@ -25,7 +25,9 @@ function BlockLassoRidgeProblem(A::AbstractMatrix, B::AbstractMatrix,
     size(B, 2) > 0 || throw(ArgumentError("B must have at least one column"))
     eltype(B) == eltype(b) ||
         throw(ArgumentError("A, B, and b must have the same float element type"))
-    all(isfinite, B) || throw(ArgumentError("B must be finite"))
+    finite_B = B isa AbstractSparseMatrix ? all(isfinite, nonzeros(B)) :
+               all(isfinite, B)
+    finite_B || throw(ArgumentError("B must be finite"))
     return BlockLassoRidgeProblem(A, B, b, x_constraint, z_constraint)
 end
 
@@ -124,9 +126,57 @@ function _block_result(problem, coefficients, nx, lambda, ridge,
                        iterations, diagnostics)
 end
 
+"""Matrix-free `[A B]` operator, preserving dense or sparse device storage."""
+struct BlockDesign{T,MA,MB,V} <: AbstractMatrix{T}
+    A::MA
+    B::MB
+    x::V
+    z::V
+    observations::V
+    gradient_x::V
+    gradient_z::V
+end
+
+function BlockDesign(A, B, b)
+    T = eltype(b)
+    make(n) = similar(b, T, n)
+    x = make(size(A, 2))
+    return BlockDesign{T,typeof(A),typeof(B),typeof(x)}(
+        A, B, x, make(size(B, 2)), make(length(b)),
+        make(size(A, 2)), make(size(B, 2)))
+end
+
+Base.size(D::BlockDesign) = (size(D.A, 1), size(D.A, 2) + size(D.B, 2))
+Base.size(D::BlockDesign, i::Integer) = i == 1 ? size(D.A, 1) :
+    i == 2 ? size(D.A, 2) + size(D.B, 2) : 1
+LinearAlgebra.norm(D::BlockDesign) = sqrt(sum(abs2, D.A) + sum(abs2, D.B))
+
+function LinearAlgebra.mul!(out::AbstractVector, D::BlockDesign,
+                            coefficients::AbstractVector)
+    nx = size(D.A, 2)
+    @views D.x .= coefficients[1:nx]
+    @views D.z .= coefficients[nx+1:length(coefficients)]
+    mul!(out, D.A, D.x)
+    mul!(D.observations, D.B, D.z)
+    out .+= D.observations
+    return out
+end
+
+function LinearAlgebra.mul!(out::AbstractVector,
+                            Dt::Adjoint{<:Any,<:BlockDesign},
+                            residual::AbstractVector)
+    D = parent(Dt)
+    nx = size(D.A, 2)
+    mul!(D.gradient_x, adjoint(D.A), residual)
+    mul!(D.gradient_z, adjoint(D.B), residual)
+    @views out[1:nx] .= D.gradient_x
+    @views out[nx+1:length(out)] .= D.gradient_z
+    return out
+end
+
 """
-Reusable CPU FISTA solver for the sparse-plus-ridge block objective.
-The combined design `[A B]` is materialized once at initialization.
+Reusable FISTA solver for the sparse-plus-ridge block objective. CPU dense
+designs materialize `[A B]`; other designs use a matrix-free block operator.
 """
 mutable struct BlockFISTASolver{P,S,T}
     problem::P
@@ -141,23 +191,40 @@ function BlockFISTASolver(problem::BlockLassoRidgeProblem, ridge;
                           z0=nothing, power_iterations=50,
                           power_safety=1.2)
     _validate_lambda(ridge)
-    problem.A isa StridedMatrix && problem.B isa StridedMatrix ||
-        throw(ArgumentError("block FISTA currently requires CPU dense matrices"))
     T = eltype(problem.b)
     nx, nz = size(problem.A, 2), size(problem.B, 2)
-    x_initial = isnothing(x0) ? zeros(T, nx) : Vector{T}(x0)
-    z_initial = isnothing(z0) ? zeros(T, nz) : Vector{T}(z0)
-    length(x_initial) == nx || throw(DimensionMismatch("x0 has wrong length"))
-    length(z_initial) == nz || throw(DimensionMismatch("z0 has wrong length"))
+    x_initial = similar(problem.b, T, nx)
+    z_initial = similar(problem.b, T, nz)
+    length(isnothing(x0) ? x_initial : x0) == nx ||
+        throw(DimensionMismatch("x0 has wrong length"))
+    length(isnothing(z0) ? z_initial : z0) == nz ||
+        throw(DimensionMismatch("z0 has wrong length"))
+    isnothing(x0) ? fill!(x_initial, zero(T)) : copyto!(x_initial, x0)
+    isnothing(z0) ? fill!(z_initial, zero(T)) : copyto!(z_initial, z0)
     all(isfinite, x_initial) && all(isfinite, z_initial) ||
         throw(ArgumentError("initial coefficients must be finite"))
     problem.x_constraint == :nonnegative && minimum(x_initial) < 0 &&
         throw(ArgumentError("x0 must be nonnegative"))
     problem.z_constraint == :nonnegative && minimum(z_initial) < 0 &&
         throw(ArgumentError("z0 must be nonnegative"))
-    combined = hcat(problem.A, problem.B)
-    base = FISTASolver(LassoProblem(combined, problem.b);
-                       step, stop, x0=vcat(x_initial, z_initial),
+    dense_cpu = problem.A isa StridedMatrix && problem.B isa StridedMatrix
+    combined = dense_cpu ? hcat(problem.A, problem.B) :
+               BlockDesign(problem.A, problem.B, problem.b)
+    # The two constituent matrices and b were validated by the block problem.
+    base_problem = dense_cpu ? LassoProblem(combined, problem.b) :
+                   LassoProblem{typeof(combined),typeof(problem.b)}(
+                       combined, problem.b, :signed)
+    initial = similar(problem.b, T, nx+nz)
+    @views initial[1:nx] .= x_initial
+    @views initial[nx+1:end] .= z_initial
+    base_step = if combined isa BlockDesign && step === :frobenius
+        power = sum(abs2, problem.A) + sum(abs2, problem.B)
+        iszero(power) ? one(T) : inv(T(power))
+    else
+        step
+    end
+    base = FISTASolver(base_problem;
+                       step=base_step, stop, x0=initial,
                        power_iterations, power_safety)
     # A numeric step is interpreted as the step for the full block objective.
     actual_step = step isa Real ? base.step : inv(inv(base.step) + ridge)

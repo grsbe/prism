@@ -12,9 +12,10 @@ src/
   result.jl                owned results and stopping policies
   optimality.jl            independent diagnostics at returned solutions
   solvers/fista.jl          reusable FISTA, CPU/device-compatible arrays
+  solvers/group_fista.jl    disjoint group-LASSO FISTA, CPU and GPU
   solvers/admm.jl           reusable CPU ADMM
   solvers/constrained.jl    CPU L1-ball FISTA/ADMM and projected-gradient check
-  solvers/block_fista.jl    CPU sparse-plus-ridge block FISTA
+  solvers/block_fista.jl    sparse-plus-ridge block FISTA, CPU and GPU
   solvers/laplacian_fista.jl CPU L1 + squared-Laplacian FISTA
   solvers/tv_pdhg.jl        CPU L1 + TV PDHG, primal-dual checks
   workflows/paths.jl       lambda paths and per-point callback
@@ -33,14 +34,15 @@ diagnostics may differ.
 | Problem | Implementation location | Status |
 | --- | --- | --- |
 | L1-ball-constrained least squares | `solvers/constrained.jl` | CPU FISTA and ADMM implemented; SRT parity checked |
-| Sparse block + smooth ridge block | `solvers/block_fista.jl` | CPU FISTA and λ path implemented; SRT parity checked |
+| Sparse block + smooth ridge block | `solvers/block_fista.jl` | CPU/GPU FISTA and λ path implemented; GPU dense/CSR parity checked |
 | L1 + isotropic/anisotropic total variation | `solvers/tv_pdhg.jl` | CPU PDHG implemented with primal-dual checks; SRT parity checked |
 | L1 + squared graph-Laplacian smoothing | `solvers/laplacian_fista.jl` | CPU FISTA implemented; SRT parity checked |
 | Soft-min robust objective | `solvers/softmin_fista.jl` | Not yet ported |
 | Basic LASSO QP via Gurobi | `ext/SpasmiGurobiExt.jl` | Optional extension implemented |
 | Other Gurobi formulations | `ext/SpasmiGurobiExt.jl` | Not yet ported |
 
-Ordered-group LASSO cross-validation is implemented in `workflows/`;
+Ordered-group cross-validation for ordinary LASSO is implemented in
+`workflows/`;
 uncertainty/resampling and other hyperparameter workflows are not. These
 workflows do not belong inside the solvers. GPU FISTA is a first-class
 implementation of the same

@@ -12,23 +12,21 @@ surface; SRT remains unchanged.
 
 ## Install
 
-Spasmi requires Julia 1.11 or newer and is not registered yet. From this
-checkout, instantiate its environment and verify that it loads:
-
-```bash
-cd /home/tobias-grasberger/spasmi
-julia --project=. -e 'using Pkg; Pkg.instantiate(); using Spasmi'
-```
-
-To use it from another Julia project, activate that project and add this
-checkout as a development dependency:
+Spasmi requires Julia 1.11 or newer. It is not registered yet; install
+it directly from Git in the Julia environment where you will use it:
 
 ```julia
 using Pkg
-Pkg.activate("/path/to/your/project")
-Pkg.develop(path="/home/tobias-grasberger/spasmi")
+Pkg.add(url="https://github.com/grsbe/spasmi.git")
 using Spasmi
 ```
+
+In the Julia package REPL, the equivalent is
+`pkg> add https://github.com/grsbe/spasmi.git`. To work on the source
+instead, use `Pkg.develop(path="/home/tobias-grasberger/spasmi")` in your
+project environment. From the checkout itself, run
+`julia --project=. -e 'using Pkg; Pkg.instantiate(); using Spasmi'`
+to verify it loads.
 
 CPU solvers need no optional packages. For GPU FISTA, add `CUDA` to the
 *calling project's* environment (`Pkg.add("CUDA")`), then check
@@ -41,10 +39,26 @@ license in that environment.
 | Reconstruction problem | Solver | Current support |
 | --- | --- | --- |
 | Signed or nonnegative penalized LASSO | FISTA, ADMM; optional Gurobi QP | FISTA: dense/sparse CPU and dense/CSR CUDA; ADMM: dense CPU |
+| Disjoint group LASSO, signed or nonnegative | FISTA | Dense/sparse CPU and dense/CSR CUDA |
 | Signed or nonnegative least squares in an L1 ball | FISTA, ADMM | Dense CPU |
-| Sparse block plus smooth ridge block; independent nonnegativity on each block | FISTA | Dense CPU |
+| Sparse block plus smooth ridge block; independent nonnegativity on each block | FISTA | Dense CPU, GPU dense/CSR |
 | L1 plus squared graph-Laplacian smoothing | FISTA | Dense CPU |
 | L1 plus 2D isotropic or anisotropic total variation | PDHG | Dense CPU |
+
+For group sparsity, provide a partition of coefficient indices; every column
+must belong to exactly one nonempty group. For example:
+
+```julia
+problem = GroupLassoProblem(A, b, [[1, 2], [3]];
+                            constraint=:nonnegative)
+result = solve(problem, FISTA(), 0.2)
+```
+
+The default group weight is `sqrt(length(group))`; pass `weights` to override
+it. This selects whole groups, not individual coefficients within a selected
+group. Groups need not be contiguous. Overlapping groups are not supported.
+A group path uses the same `lambda_grid` and `solve_path!` workflow as LASSO,
+but grouped cross-validation is not yet implemented.
 
 The central problem is
 

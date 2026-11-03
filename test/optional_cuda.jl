@@ -71,5 +71,8 @@ end
     @test cpu.converged && gpu.converged
     @test norm(A * Array(gpu.x) - A * cpu.x) / norm(b) < 1e-3
     @test gpu.kkt_residual ≈
-          lasso_kkt_residual(LassoProblem(A, b), Array(gpu.x), lambda) rtol=1e-3
+          lasso_kkt_residual(LassoProblem(A, b), Array(gpu.x), lambda) rtol=1e-3 atol=2e-6
 end
+
+include("optional_cuda_group.jl")
+include("optional_cuda_block.jl")

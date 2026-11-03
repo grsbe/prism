@@ -54,6 +54,34 @@ The factorization is cached. For $n>m$, the implementation factors
 $AA^\top+\rho I$ and uses the Woodbury identity rather than factoring
 an $n\times n$ matrix. $\rho$ is fixed for that initialized solver.
 
+## Disjoint group LASSO
+
+For a partition $\mathcal G$ of the coefficient indices, Spasmi also solves
+
+$$
+\min_{x\in C}\frac12\|Ax-b\|_2^2
++\lambda\sum_{g\in\mathcal G}w_g\|x_g\|_2,
+\qquad w_g>0,
+$$
+
+where $C=\mathbb R^n$ or $\mathbb R_+^n$. By default
+$w_g=\sqrt{|g|}$; custom weights are accepted. With
+$v_g=y_g-t[A^\top(Ay-b)]_g$, the group proximal step is
+
+$$
+x_g^+=\left(1-\frac{t\lambda w_g}{\|z_g\|_2}\right)_+z_g,
+\qquad
+z_g=\begin{cases}v_g,&C=\mathbb R^n,\\
+(v_g)_+,&C=\mathbb R_+^n.
+\end{cases}
+$$
+
+The result is zero when $z_g=0$. The nonnegative case clips *before*
+group shrinkage. A selected group can contain small nonzero coefficients;
+this is group sparsity, not within-group sparsity. Groups must be disjoint
+and cover every column. FISTA supports CPU and CUDA arrays; ADMM is not
+implemented for this objective.
+
 ## L1-ball-constrained least squares
 
 Here the penalty is replaced by a budget $R$:

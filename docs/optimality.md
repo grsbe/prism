@@ -67,6 +67,16 @@ For $x\geq0$, replace the bound by
 $s=\max(1,\max_j[-(A^\top r)_j]_+/\lambda)$; dual feasibility becomes
 $A^\top u\geq-\lambda\mathbf1$. Both produce a valid gap.
 
+For disjoint group LASSO, replace the signed L1 dual constraint by
+$\|A_g^\top u\|_2\leq\lambda w_g$ for every group. Under coefficient
+nonnegativity it becomes $\|(-A_g^\top u)_+\|_2\leq\lambda w_g$.
+Spasmi scales the residual by the largest groupwise dual-bound violation
+to form a feasible dual point. The returned-point KKT residual is the
+largest groupwise subgradient violation **divided by its weight**. At a
+zero signed group it is
+$[\|A_g^\top r\|_2-\lambda w_g]_+/w_g$; the nonnegative case uses only
+negative gradient components.
+
 The other FISTA families use their own duals:
 
 - **L1 ball:** $u=Ax-b$ needs no rescaling. Subtract the support function

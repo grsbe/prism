@@ -102,6 +102,20 @@ so GPU memory grows with path length. With `store=false`, the callback still
 receives one owned result snapshot per point, but Spasmi does not retain it
 after the callback. Transfer or persist only the points you need.
 
+Block LASSO–ridge FISTA also supports GPU dense and CSR inputs, with the
+L1 and ridge blocks independently signed or nonnegative. The block operator
+keeps both matrices and all workspaces on the device, including across a
+warm-started path. It avoids materializing a combined GPU matrix, saving
+matrix storage at the cost of two matrix-vector products and a few extra
+device kernels per iteration. Benchmark for the actual matrix dimensions.
+
+Group-LASSO CUDA FISTA supports dense and CSR designs and noncontiguous
+partitions without scalar indexing. Its current group proximal step loops
+over groups and performs a reduction per group, so **many tiny groups may be
+slow on GPU** despite a fast matrix multiply. Benchmark with your actual
+group count before choosing CPU versus GPU; a segmented GPU kernel would be
+a future optimization.
+
 The current optional CUDA tests include the NVIDIA RTX PRO 6000
 Blackwell. GPU speedup is workload-dependent; the included
 `benchmark/gpu_fista.jl` compares fixed-iteration CPU/GPU runs and

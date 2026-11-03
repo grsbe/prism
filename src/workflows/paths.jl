@@ -8,7 +8,7 @@ owned snapshots. `on_result(index, result)` runs immediately after each point,
 so callers can persist a path incrementally. `store=false` avoids retaining
 the entire coefficient path in memory and returns `nothing`.
 """
-function solve_path!(solver::Union{FISTASolver,ADMMSolver}, lambdas;
+function solve_path!(solver::Union{FISTASolver,GroupFISTASolver,ADMMSolver}, lambdas;
                      on_result=nothing, store=true, stop_on_failure=false,
                      restart=false)
     values = collect(lambdas)
@@ -65,7 +65,7 @@ function lambda_grid(problem::LassoProblem;
     return values
 end
 
-lambda_grid(solver::Union{FISTASolver,ADMMSolver}; kwargs...) =
+lambda_grid(solver::Union{FISTASolver,GroupFISTASolver,ADMMSolver}; kwargs...) =
     lambda_grid(solver.problem; kwargs...)
 
 """
@@ -76,7 +76,7 @@ through `min_ratio * lambda_max`. The entire grid is attempted unless
 `stop_on_failure=true`; there is no fit-plateau early stop. To continue a
 particular grid or use another endpoint, pass `lambdas` explicitly.
 """
-function solve_path!(solver::Union{FISTASolver,ADMMSolver};
+function solve_path!(solver::Union{FISTASolver,GroupFISTASolver,ADMMSolver};
                      min_ratio=DEFAULT_LASSO_PATH_MIN_RATIO,
                      n_lambdas=DEFAULT_LASSO_PATH_POINTS, kwargs...)
     values = lambda_grid(solver; min_ratio, n_lambdas)

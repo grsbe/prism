@@ -87,4 +87,28 @@ function solve_path(problem::LassoProblem, method::Union{FISTA,ADMM};
 end
 
 export FISTA, ADMM, GurobiBackend, initialize, solve, solve_path
+initialize(problem::GroupLassoProblem, method::FISTA; x0=nothing) =
+    GroupFISTASolver(problem; step=method.step, stop=method.stop, x0,
+                     power_iterations=method.power_iterations,
+                     power_safety=method.power_safety)
+
+solve(problem::GroupLassoProblem, method::FISTA, lambda; x0=nothing) =
+    solve!(initialize(problem, method; x0), lambda)
+
+solve(problem::GroupLassoProblem, method::FISTA; lambda, x0=nothing) =
+    solve(problem, method, lambda; x0)
+
+function solve_path(problem::GroupLassoProblem, method::FISTA, lambdas;
+                    x0=nothing, kwargs...)
+    return solve_path!(initialize(problem, method; x0), lambdas; kwargs...)
+end
+
+function solve_path(problem::GroupLassoProblem, method::FISTA;
+                    min_ratio=DEFAULT_LASSO_PATH_MIN_RATIO,
+                    n_lambdas=DEFAULT_LASSO_PATH_POINTS,
+                    x0=nothing, kwargs...)
+    return solve_path!(initialize(problem, method; x0);
+                       min_ratio, n_lambdas, kwargs...)
+end
+
 export lambda_grid

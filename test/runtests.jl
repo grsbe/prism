@@ -382,6 +382,7 @@ using Spasmi
     end
 end
 
+include("group_lasso.jl")
 include("new_problem_families.jl")
 include("laplacian_tests.jl")
 include("tv_tests.jl")
