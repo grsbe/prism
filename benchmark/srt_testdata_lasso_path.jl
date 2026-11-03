@@ -1,23 +1,23 @@
-# Spasmi-only nonnegative LASSO path on SRT's SNR30 testdata.
+# Prism-only nonnegative LASSO path on SRT's SNR30 testdata.
 # CPU defines the real-inversion lambda grid; GPU variants replay exactly that grid.
 using LinearAlgebra
 using SparseArrays
-using Spasmi
+using Prism
 using JLD2
 using CUDA
 
-const DATA_DIR = get(ENV, "SPASMI_SRT_DATA_DIR",
+const DATA_DIR = get(ENV, "PRISM_SRT_DATA_DIR",
                      "/home/tobias-grasberger/sparse-reconstruction-toolkit/testdata")
-const OUT_DIR = get(ENV, "SPASMI_PATH_OUT_DIR",
-                    "/home/tobias-grasberger/spasmi/benchmark/results/srt_testdata_20261020/lasso_paths")
-const BASE_POINTS = parse(Int, get(ENV, "SPASMI_PATH_BASE_POINTS", "30"))
-const BASE_MIN_RATIO = parse(Float64, get(ENV, "SPASMI_PATH_BASE_MIN_RATIO", "1e-4"))
-const MIN_RATIO = parse(Float64, get(ENV, "SPASMI_PATH_MIN_RATIO", "1e-8"))
-const RELATIVE_GAIN = parse(Float64, get(ENV, "SPASMI_PATH_RELATIVE_GAIN", "0.01"))
-const GAIN_STEPS = parse(Int, get(ENV, "SPASMI_PATH_GAIN_STEPS", "3"))
-const INCLUDE_CPU = get(ENV, "SPASMI_PATH_INCLUDE_CPU", "1") == "1"
-const GPU_DEVICE = parse(Int, get(ENV, "SPASMI_SRT_GPU_DEVICE", "1"))
-const BLAS_THREADS = parse(Int, get(ENV, "SPASMI_SRT_BLAS_THREADS", "32"))
+const OUT_DIR = get(ENV, "PRISM_PATH_OUT_DIR",
+                    "/home/tobias-grasberger/prism/benchmark/results/srt_testdata_20261020/lasso_paths")
+const BASE_POINTS = parse(Int, get(ENV, "PRISM_PATH_BASE_POINTS", "30"))
+const BASE_MIN_RATIO = parse(Float64, get(ENV, "PRISM_PATH_BASE_MIN_RATIO", "1e-4"))
+const MIN_RATIO = parse(Float64, get(ENV, "PRISM_PATH_MIN_RATIO", "1e-8"))
+const RELATIVE_GAIN = parse(Float64, get(ENV, "PRISM_PATH_RELATIVE_GAIN", "0.01"))
+const GAIN_STEPS = parse(Int, get(ENV, "PRISM_PATH_GAIN_STEPS", "3"))
+const INCLUDE_CPU = get(ENV, "PRISM_PATH_INCLUDE_CPU", "1") == "1"
+const GPU_DEVICE = parse(Int, get(ENV, "PRISM_SRT_GPU_DEVICE", "1"))
+const BLAS_THREADS = parse(Int, get(ENV, "PRISM_SRT_BLAS_THREADS", "32"))
 
 load_single(name) =
     JLD2.load(joinpath(DATA_DIR, name))["single_stored_object"]

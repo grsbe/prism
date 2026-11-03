@@ -20,10 +20,10 @@ The signed case reverses the simple nonnegative-path timing story: the earlier g
 
 Important caveat: dual-gap convergence does not ensure small KKT/λ at tiny λ. At point 25 its dual gap is 0.38 of the permitted threshold, yet KKT/λ is 1.99; the earlier rule has KKT/λ about 0.001 there. The gap threshold is normalized by $\|b\|^2$, not by λ, so neither stop is uniformly “more precise” for every coefficient diagnostic. The earlier rule's failure at points 27–31 also does not imply those fields fail the *dual-gap* criterion.
 
-Run from `/home/tobias-grasberger/spasmi`:
+Run from `/home/tobias-grasberger/prism`:
 
 ```bash
-JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=32 SPASMI_SRT_GPU_DEVICE=1 \
-julia --project=/home/tobias-grasberger/.cache/spasmi-bench-RoR2tH \
+JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=32 PRISM_SRT_GPU_DEVICE=1 \
+julia --project=/home/tobias-grasberger/.cache/prism-bench-RoR2tH \
      benchmark/srt_testdata_signed_stop_path.jl
 ```

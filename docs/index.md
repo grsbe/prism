@@ -1,6 +1,6 @@
-# Spasmi documentation
+# Prism documentation
 
-Spasmi is a Julia toolkit for sparse and spatially smooth reconstruction
+Prism is a Julia toolkit for sparse and spatially smooth reconstruction
 from linear observations. It separates the algebraic problem, numerical
 method, stopping policy, and multi-$\lambda$ workflow. This separation is
 the main design goal: the code should make the modeling decisions visible.
@@ -29,7 +29,7 @@ Choose your background and units first; construct $A$ and $b$; then choose
 a problem, solver, stop, and path. For penalized nonnegative LASSO:
 
 ```julia
-using Spasmi
+using Prism
 problem = LassoProblem(A, b; constraint=:nonnegative)
 solver = initialize(problem, FISTA())
 results = solve_path!(solver)  # 30 values, λmax down to 1e-4 λmax

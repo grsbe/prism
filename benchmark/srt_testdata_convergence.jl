@@ -1,17 +1,17 @@
-# Time to Spasmi's DEFAULT GradientMappingStop on SRT's SNR30 testdata.
-# Only Spasmi is used as a solver. CUDA and JLD2 are benchmark dependencies.
+# Time to Prism's DEFAULT GradientMappingStop on SRT's SNR30 testdata.
+# Only Prism is used as a solver. CUDA and JLD2 are benchmark dependencies.
 using LinearAlgebra
 using SparseArrays
-using Spasmi
+using Prism
 using JLD2
 using CUDA
 
-const DATA_DIR = get(ENV, "SPASMI_SRT_DATA_DIR",
+const DATA_DIR = get(ENV, "PRISM_SRT_DATA_DIR",
                      "/home/tobias-grasberger/sparse-reconstruction-toolkit/testdata")
 const LAMBDA = 2.84e-7
-const GPU_DEVICE = parse(Int, get(ENV, "SPASMI_SRT_GPU_DEVICE", "1"))
-const BLAS_THREADS = parse(Int, get(ENV, "SPASMI_SRT_BLAS_THREADS", "32"))
-const REPEATS = parse(Int, get(ENV, "SPASMI_SRT_REPEATS", "3"))
+const GPU_DEVICE = parse(Int, get(ENV, "PRISM_SRT_GPU_DEVICE", "1"))
+const BLAS_THREADS = parse(Int, get(ENV, "PRISM_SRT_BLAS_THREADS", "32"))
+const REPEATS = parse(Int, get(ENV, "PRISM_SRT_REPEATS", "3"))
 
 load_single(name) =
     JLD2.load(joinpath(DATA_DIR, name))["single_stored_object"]
@@ -55,7 +55,7 @@ end
 
 function main()
     REPEATS > 0 && isodd(REPEATS) ||
-        error("SPASMI_SRT_REPEATS must be positive and odd")
+        error("PRISM_SRT_REPEATS must be positive and odd")
     BLAS.set_num_threads(BLAS_THREADS)
     CUDA.functional() || error("CUDA is not functional")
     CUDA.device!(GPU_DEVICE)

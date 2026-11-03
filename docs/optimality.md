@@ -48,7 +48,7 @@ $$
 
 Only then does it form a **feasible** dual candidate at the returned
 coefficients and require $P-D\leq\mathrm{tol}\,\|b\|_2^2$.
-Spasmi minimizes an unnormalized least-squares objective; scikit-learn
+Prism minimizes an unnormalized least-squares objective; scikit-learn
 divides its objective by $n$, hence reports the equivalent threshold
 $\mathrm{tol}\,\|b\|_2^2/n$. A small iterate change alone never declares
 convergence. The default always performs at least one FISTA step so that
@@ -70,7 +70,7 @@ $A^\top u\geq-\lambda\mathbf1$. Both produce a valid gap.
 For disjoint group LASSO, replace the signed L1 dual constraint by
 $\|A_g^\top u\|_2\leq\lambda w_g$ for every group. Under coefficient
 nonnegativity it becomes $\|(-A_g^\top u)_+\|_2\leq\lambda w_g$.
-Spasmi scales the residual by the largest groupwise dual-bound violation
+Prism scales the residual by the largest groupwise dual-bound violation
 to form a feasible dual point. The returned-point KKT residual is the
 largest groupwise subgradient violation **divided by its weight**. At a
 zero signed group it is
@@ -116,7 +116,7 @@ $
 $
 
 For signed LASSO, $s_k=\max(\|g(y_k)\|_\infty,\epsilon(t))$,
-matching SRT. For nonnegative LASSO with $\lambda>0$, Spasmi uses
+matching SRT. For nonnegative LASSO with $\lambda>0$, Prism uses
 
 $
 s_k=\max\left\{\lambda,\epsilon(t),
@@ -136,7 +136,7 @@ The difference is
 $g(x_{k+1})-g(y_k)=A^\top A(x_{k+1}-y_k)$, which generally requires
 additional matrix-vector products to evaluate.
 
-To use the previous Spasmi/SRT-style rule, pass
+To use the previous Prism/SRT-style rule, pass
 `FISTA(stop=GradientMappingStop(atol=a, rtol=r, check_every=1))`.
 Its defaults are $a=0$, $r=10^{-3}$, and checking every iteration;
 the iteration timing matches SRT's optional rule; the nonnegative scale above intentionally differs. `stop_reason=:gradient_mapping` identifies this stop.
@@ -164,7 +164,7 @@ $\max(\|A^\top b\|_2,1)$; its threshold is controlled by
 ## L1-ball-constrained least squares
 
 For $C=\{x:\|x\|_1\leq R\}$, optionally intersected with $x\geq0$,
-Spasmi evaluates the projected-gradient mapping
+Prism evaluates the projected-gradient mapping
 
 $$
 r_C(x)=\frac{\|x-\Pi_C(x-tA^\top(Ax-b))\|_2}{t}.
@@ -202,7 +202,7 @@ $$
 $$
 
 with forward-difference operator $D$ and $C$ either the full space or the
-nonnegative orthant. At the returned $x$, Spasmi evaluates four conditions:
+nonnegative orthant. At the returned $x$, Prism evaluates four conditions:
 
 1. Coefficient stationarity using $g=A^\top y+D^\top p$ and the signed or
    nonnegative LASSO coordinate rule above, with tolerance

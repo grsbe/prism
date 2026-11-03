@@ -1,6 +1,6 @@
 using Test
 using LinearAlgebra
-using Spasmi
+using Prism
 
 @testset "Laplacian-regularized FISTA" begin
     A = Matrix{Float64}(I, 4, 4)

@@ -1,6 +1,6 @@
 using Test
 using LinearAlgebra
-using Spasmi
+using Prism
 
 @testset "TV-PDHG primal-dual stopping" begin
     A = Matrix{Float64}(I, 4, 4)

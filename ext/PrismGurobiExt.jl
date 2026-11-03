@@ -1,13 +1,13 @@
-module SpasmiGurobiExt
+module PrismGurobiExt
 
-using Spasmi
+using Prism
 using JuMP
 using Gurobi
 
-function Spasmi.solve(problem::Spasmi.LassoProblem,
-                      method::Spasmi.GurobiBackend, lambda;
+function Prism.solve(problem::Prism.LassoProblem,
+                      method::Prism.GurobiBackend, lambda;
                       x0=nothing)
-    Spasmi._validate_lambda(lambda)
+    Prism._validate_lambda(lambda)
     isnothing(x0) || throw(ArgumentError("GurobiBackend does not yet use x0"))
     A, b = problem.A, problem.b
     A isa StridedMatrix ||
@@ -44,10 +44,10 @@ function Spasmi.solve(problem::Spasmi.LassoProblem,
     status = termination_status(model)
     has_values(model) || error("Gurobi returned no primal solution: $status")
     coefficients = value.(x)
-    kkt = Spasmi.lasso_kkt_residual(problem, coefficients, lambda)
+    kkt = Prism.lasso_kkt_residual(problem, coefficients, lambda)
     converged = status == JuMP.MOI.OPTIMAL &&
-                kkt <= Spasmi._kkt_tolerance(Spasmi.KKTStop(), lambda)
-    return Spasmi._make_result(problem, coefficients, lambda, converged,
+                kkt <= Prism._kkt_tolerance(Prism.KKTStop(), lambda)
+    return Prism._make_result(problem, coefficients, lambda, converged,
                               converged ? :optimal : :solver_not_optimal, 0,
                               (termination_status=string(status),))
 end

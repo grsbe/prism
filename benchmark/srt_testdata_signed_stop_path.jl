@@ -3,11 +3,11 @@ using CUDA
 using JLD2
 using LinearAlgebra
 using SparseArrays
-using Spasmi
+using Prism
 
 const DATA_DIR = "/home/tobias-grasberger/sparse-reconstruction-toolkit/testdata"
-const OUT_DIR = "/home/tobias-grasberger/spasmi/benchmark/results/srt_testdata_20261020/signed_lasso_blackwell_csr_stop_comparison"
-const GPU_DEVICE = parse(Int, get(ENV, "SPASMI_SRT_GPU_DEVICE", "1"))
+const OUT_DIR = "/home/tobias-grasberger/prism/benchmark/results/srt_testdata_20261020/signed_lasso_blackwell_csr_stop_comparison"
+const GPU_DEVICE = parse(Int, get(ENV, "PRISM_SRT_GPU_DEVICE", "1"))
 const BASE_POINTS = 30
 const BASE_MIN_RATIO = 1e-4
 const MIN_RATIO = 1e-8

@@ -2,7 +2,7 @@
 using JLD2
 using LinearAlgebra
 
-const ROOT = "/home/tobias-grasberger/spasmi/benchmark/results/srt_testdata_20261020"
+const ROOT = "/home/tobias-grasberger/prism/benchmark/results/srt_testdata_20261020"
 const OUT = joinpath(ROOT, "nonnegative_mapping_scale_corrected")
 const DATA = "/home/tobias-grasberger/sparse-reconstruction-toolkit/testdata"
 

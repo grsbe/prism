@@ -1,14 +1,14 @@
-# Run from a Julia environment containing both Spasmi and CUDA.jl.
+# Run from a Julia environment containing both Prism and CUDA.jl.
 # CUDA is optional and this file is intentionally not included in Pkg.test().
 using Test
 using LinearAlgebra
 using Random
 using SparseArrays
-using Spasmi
+using Prism
 using CUDA
 
 CUDA.functional() || error("CUDA is installed but no functional device is available")
-CUDA.device!(parse(Int, get(ENV, "SPASMI_CUDA_DEVICE", "0")))
+CUDA.device!(parse(Int, get(ENV, "PRISM_CUDA_DEVICE", "0")))
 @info "Testing CUDA device" CUDA.device()
 CUDA.allowscalar(false)
 

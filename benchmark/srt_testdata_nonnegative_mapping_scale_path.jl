@@ -3,12 +3,12 @@ using CUDA
 using JLD2
 using LinearAlgebra
 using SparseArrays
-using Spasmi
+using Prism
 
-const ROOT = "/home/tobias-grasberger/spasmi/benchmark/results/srt_testdata_20261020"
+const ROOT = "/home/tobias-grasberger/prism/benchmark/results/srt_testdata_20261020"
 const OUT = joinpath(ROOT, "nonnegative_mapping_scale_corrected")
 const DATA = "/home/tobias-grasberger/sparse-reconstruction-toolkit/testdata"
-const DEVICE = parse(Int, get(ENV, "SPASMI_SRT_GPU_DEVICE", "1"))
+const DEVICE = parse(Int, get(ENV, "PRISM_SRT_GPU_DEVICE", "1"))
 
 load_single(name) = JLD2.load(joinpath(DATA, name))["single_stored_object"]
 

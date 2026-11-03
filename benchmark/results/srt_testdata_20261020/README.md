@@ -1,6 +1,6 @@
 # Spasmi benchmark on SRT testdata — 2026-10-20
 
-The [script](../../srt_testdata_spasmi.jl) imports **Spasmi only** as its
+The [script](../../srt_testdata_prism.jl) imports **Spasmi only** as its
 solver package. It reads SRT's existing testdata but does not call SRT code.
 All benchmark files and the Julia dependency environment are under
 `/home/tobias-grasberger`.
@@ -27,7 +27,7 @@ All benchmark files and the Julia dependency environment are under
   them separately).
 - CUDA ordinals on this host: 0 = NVIDIA RTX 6000 Ada Generation;
   1 = NVIDIA RTX PRO 6000 Blackwell Max-Q. CUDA was installed only in
-  `~/.cache/spasmi-bench-RoR2tH`, not added to Spasmi's dependencies.
+  `~/.cache/prism-bench-RoR2tH`, not added to Spasmi's dependencies.
 
 ## Median solve time
 
@@ -95,15 +95,15 @@ a stricter returned-point KKT stop.
 ## Reproduce
 
 ```bash
-cd /home/tobias-grasberger/spasmi
-SPASMI_SRT_ITERATIONS=200 SPASMI_SRT_GPU_DEVICE=1 \
+cd /home/tobias-grasberger/prism
+PRISM_SRT_ITERATIONS=200 PRISM_SRT_GPU_DEVICE=1 \
 JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=32 \
-julia --project=/home/tobias-grasberger/.cache/spasmi-bench-RoR2tH \
-     benchmark/srt_testdata_spasmi.jl
+julia --project=/home/tobias-grasberger/.cache/prism-bench-RoR2tH \
+     benchmark/srt_testdata_prism.jl
 ```
 
-Use `SPASMI_SRT_GPU_DEVICE=0` for Ada and
-`SPASMI_SRT_ITERATIONS=40` for the short fixed-iteration run. For the
+Use `PRISM_SRT_GPU_DEVICE=0` for Ada and
+`PRISM_SRT_ITERATIONS=40` for the short fixed-iteration run. For the
 historical gradient-mapping setup, replace the script name in the
 command with `benchmark/srt_testdata_convergence.jl` (the iteration override
 is ignored). That script now inherits the package default; explicitly pass

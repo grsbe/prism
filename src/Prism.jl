@@ -1,4 +1,4 @@
-module Spasmi
+module Prism
 
 using LinearAlgebra
 using SparseArrays

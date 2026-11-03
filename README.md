@@ -1,31 +1,32 @@
-# Spasmi.jl
+# Prism.jl
 
 Sparse and smooth reconstruction for linear inverse problems in Julia.
-Given observations $b$ and a forward operator $A$, Spasmi estimates sparse
+Given observations $b$ and a forward operator $A$, Prism estimates sparse
 coefficients $x$ with optional nonnegativity and spatial regularization.
 The core choices are explicit: **problem**, **solver**, **stopping rule**,
 and **regularization path**.
 
-Spasmi is a new package under development, not a drop-in replacement for
+Prism is a new package under development, not a drop-in replacement for
 SparseReconstructionToolkit (SRT). It retains a small, separate compatibility
 surface; SRT remains unchanged.
 
 ## Install
 
-Spasmi requires Julia 1.11 or newer. It is not registered yet; install
-it directly from Git in the Julia environment where you will use it:
+Prism requires Julia 1.11 or newer. It is not registered yet. Until the
+renamed source is pushed, use `Pkg.develop(path="/home/tobias-grasberger/prism")`.
+After pushing it, install directly from the renamed GitHub repository:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/grsbe/spasmi.git")
-using Spasmi
+Pkg.add(url="https://github.com/grsbe/prism.git")
+using Prism
 ```
 
 In the Julia package REPL, the equivalent is
-`pkg> add https://github.com/grsbe/spasmi.git`. To work on the source
-instead, use `Pkg.develop(path="/home/tobias-grasberger/spasmi")` in your
+`pkg> add https://github.com/grsbe/prism.git`. To work on the source
+instead, use `Pkg.develop(path="/home/tobias-grasberger/prism")` in your
 project environment. From the checkout itself, run
-`julia --project=. -e 'using Pkg; Pkg.instantiate(); using Spasmi'`
+`julia --project=. -e 'using Pkg; Pkg.instantiate(); using Prism'`
 to verify it loads.
 
 CPU solvers need no optional packages. For GPU FISTA, add `CUDA` to the
@@ -77,7 +78,7 @@ A LASSO solver can be reused across a descending
 $\lambda$ path with warm starts. Results own their coefficient arrays and
 report numerical diagnostics rather than only a vector.
 
-Spasmi does **not** select a scientifically appropriate $\lambda$, estimate
+Prism does **not** select a scientifically appropriate $\lambda$, estimate
 transport/model error, build footprints, or turn coefficient positivity into
 physical field positivity. Form the design, subtract backgrounds or priors,
 and apply measurement weighting before creating a problem.
@@ -85,7 +86,7 @@ and apply measurement weighting before creating a problem.
 ## Start here
 
 ```julia
-using Spasmi, LinearAlgebra
+using Prism, LinearAlgebra
 
 A = Matrix{Float64}(I, 3, 3)
 b = [2.0, -1.0, 0.5]
@@ -115,7 +116,7 @@ $\lambda$. The default `DualGapStop(tol=1e-4)` first checks whether the largest
 coefficient update is at most `tol` times the largest coefficient; only
 then does it check a returned-point primal-dual gap against
 `tol * norm(b)^2`. The latter matches scikit-learn's normalization for
-Spasmi's unnormalized objective. `KKTStop` and the older
+Prism's unnormalized objective. `KKTStop` and the older
 `GradientMappingStop` remain explicit alternatives. For a zero L1 penalty (or zero ridge penalty in the block model), the
 FISTA default uses a scaled KKT fallback; ADMM uses an absolute KKT
 fallback at zero L1 penalty. No dual gap is claimed in these cases.
@@ -188,7 +189,7 @@ a published documentation site has not been configured.
 
 ## Status and tests
 
-Spasmi has tests for analytical solutions, KKT and primal-dual stopping,
+Prism has tests for analytical solutions, KKT and primal-dual stopping,
 correlated columns, warm-start ownership, paths, and the SRT ADMM
 false-convergence example. Optional tests compare migrated objectives and
 the legacy FISTA stop with SRT, test CUDA on an NVIDIA RTX PRO 6000

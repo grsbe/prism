@@ -52,7 +52,7 @@ _cv_rmse(prediction, observed, _) =
                    lambda_ratios=..., score=_cv_rmse)
 
 Grouped K-fold CV for a signed or nonnegative LASSO. The caller supplies fold
-IDs (or obtains them from `ordered_group_folds`); Spasmi never randomly
+IDs (or obtains them from `ordered_group_folds`); Prism never randomly
 splits observations. For each training fold, compute its own zero-solution
 `lambda_max`, then solve the *same descending lambda/lambda_max ratios* with
 warm starts. The default score is held-out RMSE in the units of `problem.b`.

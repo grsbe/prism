@@ -26,7 +26,7 @@ The old rule's small RMSE and sometimes lower known-target field error in the lo
 Reproduce from the Spasmi repository:
 
 ```bash
-JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=32 SPASMI_SRT_GPU_DEVICE=1 \
-julia --project=/home/tobias-grasberger/.cache/spasmi-bench-RoR2tH \
+JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=32 PRISM_SRT_GPU_DEVICE=1 \
+julia --project=/home/tobias-grasberger/.cache/prism-bench-RoR2tH \
   benchmark/srt_testdata_nonnegative_mapping_scale_path.jl
 ```

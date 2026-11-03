@@ -1,11 +1,11 @@
 using Test
 using LinearAlgebra
 using SparseArrays
-using Spasmi
+using Prism
 using CUDA
 
 CUDA.functional() || error("CUDA is not functional")
-CUDA.device!(parse(Int, get(ENV, "SPASMI_CUDA_DEVICE", "0")))
+CUDA.device!(parse(Int, get(ENV, "PRISM_CUDA_DEVICE", "0")))
 CUDA.allowscalar(false)
 
 @testset "CUDA group LASSO, noncontiguous groups" begin

@@ -1,21 +1,21 @@
-# Real SRT testdata, but ONLY Spasmi solvers. Run in an environment with
-# Spasmi, JLD2, and CUDA; no SRT package is imported.
+# Real SRT testdata, but ONLY Prism solvers. Run in an environment with
+# Prism, JLD2, and CUDA; no SRT package is imported.
 # Example:
 # JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=32 julia --project=<benchmark-env> \
-#     benchmark/srt_testdata_spasmi.jl
+#     benchmark/srt_testdata_prism.jl
 using LinearAlgebra
 using SparseArrays
-using Spasmi
+using Prism
 using JLD2
 using CUDA
 
-const DATA_DIR = get(ENV, "SPASMI_SRT_DATA_DIR",
+const DATA_DIR = get(ENV, "PRISM_SRT_DATA_DIR",
                      "/home/tobias-grasberger/sparse-reconstruction-toolkit/testdata")
 const LAMBDA = 2.84e-7
-const ITERATIONS = parse(Int, get(ENV, "SPASMI_SRT_ITERATIONS", "40"))
-const REPEATS = parse(Int, get(ENV, "SPASMI_SRT_REPEATS", "3"))
-const BLAS_THREADS = parse(Int, get(ENV, "SPASMI_SRT_BLAS_THREADS", "32"))
-const GPU_DEVICE = parse(Int, get(ENV, "SPASMI_SRT_GPU_DEVICE", "1"))
+const ITERATIONS = parse(Int, get(ENV, "PRISM_SRT_ITERATIONS", "40"))
+const REPEATS = parse(Int, get(ENV, "PRISM_SRT_REPEATS", "3"))
+const BLAS_THREADS = parse(Int, get(ENV, "PRISM_SRT_BLAS_THREADS", "32"))
+const GPU_DEVICE = parse(Int, get(ENV, "PRISM_SRT_GPU_DEVICE", "1"))
 
 load_single(name) =
     JLD2.load(joinpath(DATA_DIR, name))["single_stored_object"]
@@ -51,9 +51,9 @@ function report(label, setup, result, median_seconds, samples)
 end
 
 function main()
-    ITERATIONS > 0 || error("SPASMI_SRT_ITERATIONS must be positive")
+    ITERATIONS > 0 || error("PRISM_SRT_ITERATIONS must be positive")
     REPEATS > 0 && isodd(REPEATS) ||
-        error("SPASMI_SRT_REPEATS must be positive and odd")
+        error("PRISM_SRT_REPEATS must be positive and odd")
     BLAS.set_num_threads(BLAS_THREADS)
     CUDA.functional() || error("CUDA is not functional")
     CUDA.device!(GPU_DEVICE)
@@ -124,7 +124,7 @@ function main()
                 label, ",", norm(A * (x_cpu - x_ref)) / norm(b))
     end
     println("These are fixed-iteration timing results, not convergence claims.")
-    println("GPU ADMM was not timed: Spasmi ADMM currently requires CPU dense matrices.")
+    println("GPU ADMM was not timed: Prism ADMM currently requires CPU dense matrices.")
 end
 
 main()

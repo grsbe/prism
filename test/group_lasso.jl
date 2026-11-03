@@ -1,7 +1,7 @@
 using Test
 using LinearAlgebra
 using SparseArrays
-using Spasmi
+using Prism
 
 @testset "disjoint group LASSO" begin
     A = Matrix{Float64}(I, 3, 3)

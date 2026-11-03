@@ -1,6 +1,6 @@
 using Test
 using LinearAlgebra
-using Spasmi
+using Prism
 
 @testset "constrained LASSO" begin
     A = Matrix{Float64}(I, 3, 3)

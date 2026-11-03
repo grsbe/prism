@@ -7,7 +7,7 @@ implementations and does not contain duplicate iteration loops.
 
 ```text
 src/
-  Spasmi.jl                includes and exports
+  Prism.jl                includes and exports
   problem.jl               validated mathematical problems
   result.jl                owned results and stopping policies
   optimality.jl            independent diagnostics at returned solutions
@@ -38,8 +38,8 @@ diagnostics may differ.
 | L1 + isotropic/anisotropic total variation | `solvers/tv_pdhg.jl` | CPU PDHG implemented with primal-dual checks; SRT parity checked |
 | L1 + squared graph-Laplacian smoothing | `solvers/laplacian_fista.jl` | CPU FISTA implemented; SRT parity checked |
 | Soft-min robust objective | `solvers/softmin_fista.jl` | Not yet ported |
-| Basic LASSO QP via Gurobi | `ext/SpasmiGurobiExt.jl` | Optional extension implemented |
-| Other Gurobi formulations | `ext/SpasmiGurobiExt.jl` | Not yet ported |
+| Basic LASSO QP via Gurobi | `ext/PrismGurobiExt.jl` | Optional extension implemented |
+| Other Gurobi formulations | `ext/PrismGurobiExt.jl` | Not yet ported |
 
 Ordered-group cross-validation for ordinary LASSO is implemented in
 `workflows/`;

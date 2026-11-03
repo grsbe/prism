@@ -1,6 +1,6 @@
 # Performance: defaults, costs, and trade-offs
 
-Spasmi should do the usual **safe, reusable** optimizations automatically.
+Prism should do the usual **safe, reusable** optimizations automatically.
 Performance still depends on matrix shape, conditioning, sparsity, device,
 and the chosen numerical accuracy. This page separates existing defaults
 from choices that carry a real cost.
@@ -51,7 +51,7 @@ $$
 
 Unless $x_{k+1}=y_k$, this is not the gradient already in hand.
 Computing $A^\top A(x_{k+1}-y_k)$ still needs a forward and adjoint
-product; storing $A^\top A$ instead can cost $O(n^2)$ memory. Spasmi does not build that Gram matrix. KKT checks therefore cost
+product; storing $A^\top A$ instead can cost $O(n^2)$ memory. Prism does not build that Gram matrix. KKT checks therefore cost
 roughly one additional forward/adjoint pair each time they run.
 Every-ten-iteration checking amortizes this cost with `KKTStop`, but a strict KKT
 criterion can also require **more iterations**, often the larger
@@ -68,7 +68,7 @@ dual-gap convergence are not numerically equivalent. See
 
 Julia threads and BLAS threads are different. Dense matrix-vector
 work is often BLAS-bound; setting both to a large count can oversubscribe
-the machine. Spasmi does **not** silently set BLAS to 32 threads:
+the machine. Prism does **not** silently set BLAS to 32 threads:
 that would be an unwanted resource decision on a shared server.
 
 Benchmark your actual matrix, including initialization and path
@@ -99,7 +99,7 @@ reductions and may synchronize.
 workspaces throughout the path; it does not transfer $A$ at each lambda.
 With `store=true`, every path point retains its own GPU coefficient snapshot,
 so GPU memory grows with path length. With `store=false`, the callback still
-receives one owned result snapshot per point, but Spasmi does not retain it
+receives one owned result snapshot per point, but Prism does not retain it
 after the callback. Transfer or persist only the points you need.
 
 Block LASSO–ridge FISTA also supports GPU dense and CSR inputs, with the
@@ -121,7 +121,7 @@ Blackwell. GPU speedup is workload-dependent; the included
 `benchmark/gpu_fista.jl` compares fixed-iteration CPU/GPU runs and
 reports the achieved KKT ratio. It is a benchmark, not a claim that
 either fixed-iteration solution has converged. The real-data
-[`srt_testdata_spasmi.jl`](../benchmark/srt_testdata_spasmi.jl)
+[`srt_testdata_prism.jl`](../benchmark/srt_testdata_prism.jl)
 benchmark includes GPU CSR and GPU dense FISTA, CPU FISTA, and CPU ADMM.
 See its [results](../benchmark/results/srt_testdata_20261020/README.md).
 GPU ADMM is not implemented.

@@ -2,11 +2,11 @@
 
 `cross_validate` runs a LASSO path separately on each training fold and
 scores held-out observations. The caller controls which rows belong together;
-Spasmi never shuffles timestamps or guesses what a scientifically independent
+Prism never shuffles timestamps or guesses what a scientifically independent
 group is.
 
 ```julia
-using Spasmi
+using Prism
 
 # One group per measurement row. Supply sorted dates explicitly when input rows
 # are not in chronological order.

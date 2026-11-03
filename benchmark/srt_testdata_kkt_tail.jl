@@ -2,17 +2,17 @@
 # Each point is independently checkpointed and can be resumed.
 using LinearAlgebra
 using SparseArrays
-using Spasmi
+using Prism
 using JLD2
 using CUDA
 
-const ROOT = "/home/tobias-grasberger/spasmi/benchmark/results/srt_testdata_20261020"
+const ROOT = "/home/tobias-grasberger/prism/benchmark/results/srt_testdata_20261020"
 const PATH_DIR = joinpath(ROOT, "lasso_paths")
 const OUT_DIR = joinpath(ROOT, "lasso_path_kkt_tail")
 const DATA_DIR = "/home/tobias-grasberger/sparse-reconstruction-toolkit/testdata"
-const START_INDEX = parse(Int, get(ENV, "SPASMI_KKT_START_INDEX", "21"))
+const START_INDEX = parse(Int, get(ENV, "PRISM_KKT_START_INDEX", "21"))
 const STOP = KKTStop(atol=0.0, rtol=0.01, check_every=25, maxiter=100_000)
-const DEVICE = parse(Int, get(ENV, "SPASMI_SRT_GPU_DEVICE", "1"))
+const DEVICE = parse(Int, get(ENV, "PRISM_SRT_GPU_DEVICE", "1"))
 
 function main()
     CUDA.functional() || error("CUDA is not functional")

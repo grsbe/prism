@@ -1,7 +1,7 @@
-# Run from an environment containing both Spasmi and SparseReconstructionToolkit.
+# Run from an environment containing both Prism and SparseReconstructionToolkit.
 using Test
 using LinearAlgebra
-using Spasmi
+using Prism
 import SparseReconstructionToolkit as SRT
 
 @testset "SRT gradient-mapping stop parity" begin
@@ -11,7 +11,7 @@ import SparseReconstructionToolkit as SRT
     step = inv(opnorm(A)^2)
     stop = GradientMappingStop(atol=0.0, rtol=1e-5,
                                check_every=1, maxiter=20_000)
-    # Nonnegative Spasmi intentionally changes the scale, so only signed
+    # Nonnegative Prism intentionally changes the scale, so only signed
     # LASSO retains exact stopping-iteration parity with SRT.
     for (constraint, old_solve) in
         ((:signed, SRT.lasso_fista),)

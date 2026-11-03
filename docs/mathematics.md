@@ -1,6 +1,6 @@
 # Mathematical models and algorithms
 
-Spasmi works on an algebraic observation model $b\approx Ax$. Here $A$ is
+Prism works on an algebraic observation model $b\approx Ax$. Here $A$ is
 the sensitivity or design matrix, $b$ the prepared observation vector,
 and $x$ the unknown coefficients. The package does not infer units or
 construct $A$ from a physical model. If the physical field is $Dx+x_0$,
@@ -56,7 +56,7 @@ an $n\times n$ matrix. $\rho$ is fixed for that initialized solver.
 
 ## Disjoint group LASSO
 
-For a partition $\mathcal G$ of the coefficient indices, Spasmi also solves
+For a partition $\mathcal G$ of the coefficient indices, Prism also solves
 
 $$
 \min_{x\in C}\frac12\|Ax-b\|_2^2
@@ -153,10 +153,10 @@ $$
 b=W(y-c-Ax_0),\qquad A_{\rm solve}=WAD.
 $$
 
-Then Spasmi solves for coefficients $z$ in
+Then Prism solves for coefficients $z$ in
 $b\approx A_{\rm solve}z$ and the physical field is $x_0+Dz$.
 If the measurement model uses differential observations, apply the
-same differencing consistently to both $y$ and $A$. Spasmi does
+same differencing consistently to both $y$ and $A$. Prism does
 not decide whether those modeling choices are justified.
 
 Near-collinear columns can yield almost identical $Ax$ from very

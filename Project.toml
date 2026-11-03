@@ -1,4 +1,4 @@
-name = "Spasmi"
+name = "Prism"
 uuid = "3fea0f5b-4774-4b8c-bfb9-727f0d5ab437"
 version = "0.1.0"
 
@@ -12,7 +12,7 @@ Gurobi = "2e9cd046-0924-5485-92f1-d5272153d98b"
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 
 [extensions]
-SpasmiGurobiExt = ["Gurobi", "JuMP"]
+PrismGurobiExt = ["Gurobi", "JuMP"]
 
 [compat]
 julia = "1.11"

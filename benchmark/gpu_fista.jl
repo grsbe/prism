@@ -1,19 +1,19 @@
-# Run in an environment containing both Spasmi and CUDA.jl.
-# Example: SPASMI_CUDA_DEVICE=1 julia --project=<cuda-env> benchmark/gpu_fista.jl
+# Run in an environment containing both Prism and CUDA.jl.
+# Example: PRISM_CUDA_DEVICE=1 julia --project=<cuda-env> benchmark/gpu_fista.jl
 using LinearAlgebra
 using Random
-using Spasmi
+using Prism
 using CUDA
 
 CUDA.functional() || error("No functional CUDA device")
-CUDA.device!(parse(Int, get(ENV, "SPASMI_CUDA_DEVICE", "0")))
+CUDA.device!(parse(Int, get(ENV, "PRISM_CUDA_DEVICE", "0")))
 CUDA.allowscalar(false)
 println("Device: ", CUDA.device())
 
 rng = MersenneTwister(2026)
-m = parse(Int, get(ENV, "SPASMI_BENCH_ROWS", "512"))
-n = parse(Int, get(ENV, "SPASMI_BENCH_COLS", "4096"))
-iterations = parse(Int, get(ENV, "SPASMI_BENCH_ITERATIONS", "100"))
+m = parse(Int, get(ENV, "PRISM_BENCH_ROWS", "512"))
+n = parse(Int, get(ENV, "PRISM_BENCH_COLS", "4096"))
+iterations = parse(Int, get(ENV, "PRISM_BENCH_ITERATIONS", "100"))
 A = randn(rng, Float32, m, n)
 b = randn(rng, Float32, m)
 lambda = 0.1f0 * norm(adjoint(A) * b, Inf)
@@ -28,9 +28,9 @@ gpu = initialize(gpu_problem, FISTA(step=cpu.step, stop=stop))
 solve!(cpu, lambda; warm_start=false)
 CUDA.@sync solve!(gpu, lambda; warm_start=false)
 
-repeats = parse(Int, get(ENV, "SPASMI_BENCH_REPEATS", "5"))
+repeats = parse(Int, get(ENV, "PRISM_BENCH_REPEATS", "5"))
 repeats > 0 && isodd(repeats) ||
-    throw(ArgumentError("SPASMI_BENCH_REPEATS must be positive and odd"))
+    throw(ArgumentError("PRISM_BENCH_REPEATS must be positive and odd"))
 cpu_times = sort!([@elapsed solve!(cpu, lambda; warm_start=false)
                    for _ in 1:repeats])
 gpu_times = sort!([@elapsed CUDA.@sync solve!(gpu, lambda;

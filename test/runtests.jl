@@ -1,9 +1,9 @@
 using Test
 using LinearAlgebra
 using SparseArrays
-using Spasmi
+using Prism
 
-@testset "Spasmi" begin
+@testset "Prism" begin
     @testset "problem validation and exact KKT" begin
         A = Matrix{Float64}(I, 3, 3)
         b = [2.0, -1.0, 0.5]

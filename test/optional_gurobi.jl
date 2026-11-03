@@ -1,11 +1,11 @@
-# Run from an environment containing Spasmi, JuMP, and Gurobi with a license.
+# Run from an environment containing Prism, JuMP, and Gurobi with a license.
 using Test
 using LinearAlgebra
-using Spasmi
+using Prism
 using JuMP
 using Gurobi
 
-@test Base.get_extension(Spasmi, :SpasmiGurobiExt) !== nothing
+@test Base.get_extension(Prism, :PrismGurobiExt) !== nothing
 
 @testset "optional Gurobi parity" begin
     A = Matrix{Float64}(I, 3, 3)
