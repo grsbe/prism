@@ -1,22 +1,26 @@
 """
-    GroupLassoProblem(A, b, groups; constraint=:signed, weights=nothing)
+    GroupLassoProblem(A, b, groups; constraint=:signed, weights=nothing,
+                      loss=LeastSquares())
 
-Disjoint group LASSO: minimize ½‖Ax-b‖² + λ∑₍g₎w₍g₎‖x₍g₎‖₂,
-optionally with x ≥ 0. Every column must occur in exactly one nonempty group.
+Disjoint group LASSO: minimize ℓ(Ax-b) + λ∑₍g₎w₍g₎‖x₍g₎‖₂,
+optionally with x ≥ 0. The loss defaults to ½‖r‖²; `loss=Huber(delta)`
+selects the Huber loss. Every column must occur in exactly one nonempty group.
 Default weights are √(group size). Groups may contain noncontiguous indices.
 """
-struct GroupLassoProblem{MA<:AbstractMatrix,VB<:AbstractVector,T,I}
+struct GroupLassoProblem{MA<:AbstractMatrix,VB<:AbstractVector,T,I,L<:DataLoss}
     A::MA
     b::VB
     groups::Vector{Vector{Int}}
     indices::Vector{I}
     weights::Vector{T}
     constraint::Symbol
+    loss::L
 end
 
 function GroupLassoProblem(A::AbstractMatrix, b::AbstractVector, groups;
-                           constraint=:signed, weights=nothing)
-    LassoProblem(A, b; constraint)
+                           constraint=:signed, weights=nothing,
+                           loss=LeastSquares())
+    loss = LassoProblem(A, b; constraint, loss).loss
     n = size(A, 2)
     isempty(groups) && throw(ArgumentError("groups must be nonempty"))
     owned = Vector{Vector{Int}}()
@@ -46,7 +50,7 @@ function GroupLassoProblem(A::AbstractMatrix, b::AbstractVector, groups;
         copyto!(idx, g)
         idx
     end for g in owned]
-    return GroupLassoProblem(A, b, owned, indices, w, constraint)
+    return GroupLassoProblem(A, b, owned, indices, w, constraint, loss)
 end
 
 function _group_penalty(problem::GroupLassoProblem, x)
@@ -62,7 +66,7 @@ function objective_value(problem::GroupLassoProblem, x::AbstractVector, lambda)
     length(x) == size(problem.A, 2) ||
         throw(DimensionMismatch("x must have one entry per column"))
     problem.constraint == :nonnegative && minimum(x) < 0 && return Inf
-    return 0.5 * sum(abs2, problem.A * x - problem.b) +
+    return _loss_value(problem.loss, problem.A * x - problem.b) +
            lambda * _group_penalty(problem, x)
 end
 
@@ -77,7 +81,8 @@ function group_lasso_kkt_residual(problem::GroupLassoProblem, x, lambda)
         throw(DimensionMismatch("x must have one entry per column"))
     problem.constraint == :nonnegative && minimum(x) < 0 &&
         throw(ArgumentError("x must be nonnegative"))
-    gradient = adjoint(problem.A) * (problem.A * x - problem.b)
+    gradient = adjoint(problem.A) *
+               _loss_derivative!(problem.loss, problem.A * x - problem.b)
     worst = zero(eltype(problem.b))
     for (idx, w) in zip(problem.indices, problem.weights)
         xv, gv = view(x, idx), view(gradient, idx)
@@ -100,7 +105,7 @@ end
 
 """
 Feasible primal-dual gap for positive-λ disjoint group LASSO. The dual
-constraints are ‖A₍g₎ᵀu‖₂ ≤ λw₍g₎ (signed) or
+point is the scaled loss derivative u = ψ(Ax-b); the dual constraints are ‖A₍g₎ᵀu‖₂ ≤ λw₍g₎ (signed) or
 ‖(-A₍g₎ᵀu)₊‖₂ ≤ λw₍g₎ (nonnegative).
 """
 function group_lasso_dual_gap(problem::GroupLassoProblem, x, lambda)
@@ -110,9 +115,10 @@ function group_lasso_dual_gap(problem::GroupLassoProblem, x, lambda)
     problem.constraint == :nonnegative && minimum(x) < 0 &&
         throw(ArgumentError("x must be nonnegative"))
     r = problem.A * x - problem.b
-    primal = 0.5 * sum(abs2, r) + lambda * _group_penalty(problem, x)
+    primal = _loss_value(problem.loss, r) + lambda * _group_penalty(problem, x)
     iszero(lambda) && return primal # The solver uses KKT instead at λ=0.
-    gradient = adjoint(problem.A) * r
+    u = _loss_derivative!(problem.loss, r)
+    gradient = adjoint(problem.A) * u
     scale = one(float(lambda))
     for (idx, w) in zip(problem.indices, problem.weights)
         gv = view(gradient, idx)
@@ -120,7 +126,8 @@ function group_lasso_dual_gap(problem::GroupLassoProblem, x, lambda)
                  norm(gv) : norm(min.(gv, zero(eltype(gv))))
         scale = max(scale, size_g / (lambda * w))
     end
-    gap = primal + 0.5 * sum(abs2, r) / scale^2 + dot(problem.b, r) / scale
+    gap = primal + _loss_conjugate(problem.loss, u) / scale^2 +
+          dot(problem.b, u) / scale
     return max(zero(gap), gap)
 end
 
@@ -129,7 +136,7 @@ function lambda_grid(problem::GroupLassoProblem; min_ratio=1e-4, n_lambdas=30)
         throw(ArgumentError("min_ratio must be finite and between 0 and 1"))
     n_lambdas isa Integer && n_lambdas >= 2 ||
         throw(ArgumentError("n_lambdas must be at least two"))
-    correlations = adjoint(problem.A) * problem.b
+    correlations = _loss_correlations(problem.A, problem.b, problem.loss)
     largest = zero(eltype(problem.b))
     for (idx, w) in zip(problem.indices, problem.weights)
         cv = view(correlations, idx)
@@ -156,7 +163,8 @@ function GroupFISTASolver(problem::GroupLassoProblem; step=:auto,
                           stop=DualGapStop(), x0=nothing,
                           power_iterations=50, power_safety=1.2)
     base = FISTASolver(LassoProblem(problem.A, problem.b;
-                                   constraint=problem.constraint);
+                                   constraint=problem.constraint,
+                                   loss=problem.loss);
                        step, stop, x0, power_iterations, power_safety)
     return GroupFISTASolver(problem, base)
 end
@@ -181,8 +189,9 @@ end
 function _group_result(problem, x, lambda, converged, reason, iterations,
                        diagnostics)
     owned = copy(x)
-    residual = norm(problem.A * owned - problem.b)
-    objective = 0.5 * residual^2 + lambda * _group_penalty(problem, owned)
+    r = problem.A * owned - problem.b
+    residual = norm(r)
+    objective = _loss_value(problem.loss, r) + lambda * _group_penalty(problem, owned)
     kkt = group_lasso_kkt_residual(problem, owned, lambda)
     ratio = iszero(lambda) ? (iszero(kkt) ? zero(kkt) : oftype(kkt, Inf)) :
             kkt / lambda
@@ -210,6 +219,7 @@ function solve!(solver::GroupFISTASolver, lambda; warm_start=true)
         copyto!(previous, x)
         mul!(base.residual, problem.A, y)
         @. base.residual = base.residual - problem.b
+        _loss_derivative!(problem.loss, base.residual)
         mul!(base.gradient, adjoint(problem.A), base.residual)
         @. base.prox_input = y - base.step * base.gradient
         _group_prox!(x, base.prox_input, problem, base.step * lambda)
@@ -225,7 +235,8 @@ function solve!(solver::GroupFISTASolver, lambda; warm_start=true)
                 if change <= stop.tol * norm(x, Inf)
                     if iszero(lambda)
                         kkt = group_lasso_kkt_residual(problem, x, lambda)
-                        scale = max(norm(adjoint(problem.A) * problem.b, Inf), 1)
+                        scale = max(norm(_loss_correlations(problem.A, problem.b,
+                                                            problem.loss), Inf), 1)
                         if kkt <= stop.tol * scale
                             return _group_result(problem, x, lambda, true,
                                                  :kkt_zero_penalty, iteration,
@@ -234,7 +245,7 @@ function solve!(solver::GroupFISTASolver, lambda; warm_start=true)
                         end
                     else
                         gap = group_lasso_dual_gap(problem, x, lambda)
-                        if gap <= _dual_gap_tolerance(problem.b, stop)
+                        if gap <= _dual_gap_tolerance(problem.b, problem.loss, stop)
                             return _group_result(problem, x, lambda, true,
                                                  :dual_gap, iteration,
                                                  (step=base.step,

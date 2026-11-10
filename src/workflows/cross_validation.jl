@@ -92,7 +92,9 @@ function cross_validate(problem::LassoProblem, method::Union{FISTA,ADMM};
         validation_counts[fold] = length(validation)
         train_problem = LassoProblem(problem.A[training, :],
                                      problem.b[training];
-                                     constraint=problem.constraint)
+                                     constraint=problem.constraint,
+                                     loss=problem.loss,
+                                     penalty=problem.penalty)
         lambda_max = first(lambda_grid(train_problem; n_lambdas=2))
         lambda_max > 0 ||
             throw(ArgumentError("fold $fold has lambda_max=0; a positive normalized path is undefined"))

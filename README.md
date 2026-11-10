@@ -74,6 +74,42 @@ x_constraint=:nonnegative, z_constraint=:signed)` (or reverse the two)
 to control the L1 and L2 blocks independently. The `constraint` keyword
 still sets both blocks together.
 
+### Robust data fit: Huber loss
+
+`LassoProblem`, `GroupLassoProblem`, and `BlockLassoRidgeProblem` accept
+`loss=Huber(delta)` in place of the default `loss=LeastSquares()`. It
+replaces $\frac12\|r\|^2$ by $\sum_i\rho_\delta(r_i)$, quadratic for
+$|r_i|\le\delta$ and linear beyond, so a few gross outliers in $b$ have
+bounded influence:
+
+```julia
+problem = LassoProblem(A, b; constraint=:nonnegative, loss=Huber(1.345))
+result = solve(problem, FISTA(), 0.2)
+```
+
+`delta` is in residual units, so weight (whiten) the observations first.
+The Huber loss is supported by FISTA on CPU and GPU (dense and CSR),
+including dual-gap stopping and `lambda_grid`. ADMM and the Gurobi backend
+reject it. Cross-validation keeps its RMSE default score; pass a robust
+`score` if outliers are present in held-out rows.
+
+### Huber penalty
+
+`LassoProblem` and the sparse block of `BlockLassoRidgeProblem` also accept
+`penalty=Huber(delta)` in place of the default `penalty=L1()`, i.e.
+$\lambda\sum_j\rho_\delta(x_j)$: ridge-like for $|x_j|\le\delta$ and linear
+(slope $\lambda\delta$) beyond. It is a dense, heavy-tailed prior and does
+**not** produce sparsity; exact zeros come only from nonnegativity. There is
+no zero-solution $\lambda_{\max}$, so `lambda_grid` and the automatic
+`solve_path!(solver)` throw; pass explicit lambdas. It combines with either
+loss, runs with FISTA on CPU and GPU, and uses dual-gap stopping. ADMM and
+Gurobi reject it. `kkt_ratio` is reported relative to $\lambda\delta$.
+
+```julia
+problem = LassoProblem(A, b; constraint=:nonnegative, penalty=Huber(0.5))
+results = solve_path!(initialize(problem, FISTA()), [10.0, 3.0, 1.0])
+```
+
 A LASSO solver can be reused across a descending
 $\lambda$ path with warm starts. Results own their coefficient arrays and
 report numerical diagnostics rather than only a vector.
@@ -199,7 +235,7 @@ Blackwell, and compare against Gurobi. Run core tests from the repository:
 julia --project=. test/runtests.jl
 ```
 
-Soft-min robust LASSO, SRT's remaining hyperparameter/uncertainty workflows,
+Soft-min robust LASSO (the Huber loss is the available robust option), SRT's remaining hyperparameter/uncertainty workflows,
 and integrated disk checkpoints have not been migrated. Grouped LASSO CV is
 available. The Gurobi extension
 covers basic penalized LASSO only. No publication license has been chosen.

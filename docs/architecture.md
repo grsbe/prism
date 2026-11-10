@@ -8,6 +8,8 @@ implementations and does not contain duplicate iteration loops.
 ```text
 src/
   Prism.jl                includes and exports
+  loss.jl                  data losses (least squares, Huber)
+  penalty.jl               coefficient penalties (L1, Huber) for LASSO/block
   problem.jl               validated mathematical problems
   result.jl                owned results and stopping policies
   optimality.jl            independent diagnostics at returned solutions

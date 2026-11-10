@@ -9,6 +9,10 @@ function Prism.solve(problem::Prism.LassoProblem,
                       x0=nothing)
     Prism._validate_lambda(lambda)
     isnothing(x0) || throw(ArgumentError("GurobiBackend does not yet use x0"))
+    problem.loss isa Prism.LeastSquares ||
+        throw(ArgumentError("GurobiBackend supports only the least-squares loss"))
+    problem.penalty isa Prism.L1 ||
+        throw(ArgumentError("GurobiBackend supports only the L1 penalty"))
     A, b = problem.A, problem.b
     A isa StridedMatrix ||
         throw(ArgumentError("GurobiBackend currently expects a CPU dense matrix"))

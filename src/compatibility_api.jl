@@ -111,7 +111,8 @@ end
 function _compat_set_constraint!(solver::FISTASolver, constraint, warm_start)
     if solver.problem.constraint != constraint
         solver.problem = LassoProblem(solver.problem.A, solver.problem.b;
-                                      constraint)
+                                      constraint, loss=solver.problem.loss,
+                                      penalty=solver.problem.penalty)
         if warm_start && constraint == :nonnegative
             @. solver.x = max(solver.x, zero(eltype(solver.x)))
         end
@@ -121,7 +122,8 @@ end
 function _compat_set_constraint!(solver::ADMMSolver, constraint, warm_start)
     if solver.problem.constraint != constraint
         solver.problem = LassoProblem(solver.problem.A, solver.problem.b;
-                                      constraint)
+                                      constraint, loss=solver.problem.loss,
+                                      penalty=solver.problem.penalty)
         if warm_start && constraint == :nonnegative
             @. solver.z = max(solver.z, zero(eltype(solver.z)))
         end

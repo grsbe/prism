@@ -40,9 +40,11 @@ const DEFAULT_LASSO_PATH_POINTS = 30
 Return a descending, logarithmically spaced LASSO grid from the smallest
 penalty with zero solution, `lambda_max`, through
 `min_ratio * lambda_max`. For signed LASSO,
-`lambda_max = maximum(abs, A' * b)`; for nonnegative LASSO,
-`lambda_max = max(0, maximum(A' * b))`.
-If `lambda_max == 0`, return the single value `[0]`.
+`lambda_max = maximum(abs, A' * ψ(b))`; for nonnegative LASSO,
+`lambda_max = max(0, maximum(A' * ψ(b)))`, where `ψ` is the loss
+derivative (`ψ(b) = b` for least squares).
+If `lambda_max == 0`, return the single value `[0]`. The Huber penalty has
+no zero-solution penalty, so it throws; pass explicit lambdas instead.
 This grid does not select a scientifically appropriate penalty.
 """
 function lambda_grid(problem::LassoProblem;
@@ -52,7 +54,9 @@ function lambda_grid(problem::LassoProblem;
         throw(ArgumentError("min_ratio must be finite and between 0 and 1"))
     n_lambdas isa Integer && n_lambdas >= 2 ||
         throw(ArgumentError("n_lambdas must be an integer of at least 2"))
-    correlations = adjoint(problem.A) * problem.b
+    problem.penalty isa L1 ||
+        throw(ArgumentError("lambda_grid needs the L1 penalty; the Huber penalty has no zero-solution lambda_max, so pass lambdas explicitly"))
+    correlations = _loss_correlations(problem.A, problem.b, problem.loss)
     lambda_max = problem.constraint == :signed ?
                  maximum(abs, correlations) :
                  max(zero(eltype(correlations)), maximum(correlations))

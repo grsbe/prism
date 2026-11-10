@@ -31,6 +31,10 @@ function ADMMSolver(problem::LassoProblem; rho=1.0, stop=DualGapStop(),
         throw(ArgumentError("ADMM stop must be DualGapStop or KKTStop"))
     problem.A isa StridedMatrix ||
         throw(ArgumentError("ADMM currently requires a CPU dense matrix; use FISTA for device arrays"))
+    problem.loss isa LeastSquares ||
+        throw(ArgumentError("ADMM supports only the least-squares loss; use FISTA for Huber"))
+    problem.penalty isa L1 ||
+        throw(ArgumentError("ADMM supports only the L1 penalty; use FISTA for Huber"))
     rho isa Real && isfinite(rho) && rho > 0 ||
         throw(ArgumentError("rho must be a finite positive real"))
     _validate_stop_number(feasibility_atol, "feasibility_atol")

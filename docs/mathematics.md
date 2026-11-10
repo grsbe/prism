@@ -54,6 +54,73 @@ The factorization is cached. For $n>m$, the implementation factors
 $AA^\top+\rho I$ and uses the Woodbury identity rather than factoring
 an $n\times n$ matrix. $\rho$ is fixed for that initialized solver.
 
+## Huber data loss
+
+The plain, group, and block FISTA problems can replace
+$\frac12\|r\|_2^2$, $r=Ax-b$, by the Huber loss
+$\sum_i\rho_\delta(r_i)$ with
+
+$$
+\rho_\delta(r)=
+\begin{cases}
+r^2/2, & |r|\le\delta,\\
+\delta(|r|-\delta/2), & |r|>\delta,
+\end{cases}
+\qquad
+\psi_\delta(r)=\rho_\delta'(r)=\operatorname{clamp}(r,-\delta,\delta).
+$$
+
+The smooth gradient becomes $A^\top\psi_\delta(Ax-b)$. Since $\psi_\delta$
+is 1-Lipschitz, the step $t\le1/\|A\|_2^2$ is unchanged. The conjugate is
+$\rho_\delta^*(u)=u^2/2$ for $|u|\le\delta$ and $+\infty$ otherwise, so the
+dual point $u=\psi_\delta(r)/s$ (with the same feasibility scale $s\ge1$ as
+for least squares) stays in its domain and the gap is
+
+$$
+\sum_i\rho_\delta(r_i)+\lambda\|x\|_1+\frac{\|u\|^2}{2}+b^\top u .
+$$
+
+For least squares, $\psi(r)=r$ recovers the formula above. The dual-gap
+tolerance scale is $2\sum_i\ell(b_i)$, which equals $\|b\|^2$ for least
+squares; for Huber, outliers do not inflate it quadratically. The path
+starts at $\lambda_{\max}=\|A^\top\psi_\delta(b)\|_\infty$ (positive part for
+nonnegative coefficients; groupwise norms for group LASSO). ADMM is not
+extended, because its $x$-update relies on a least-squares factorization.
+
+## Huber penalty
+
+Plain and block FISTA can replace $\lambda\|x\|_1$ (block: on $x$ only) by
+$\lambda\sum_j\rho_\delta(x_j)$. The prox of $\tau\rho_\delta$ is
+
+$$
+\operatorname{prox}(v)=
+\begin{cases}
+v/(1+\tau), & |v|\le\delta(1+\tau),\\
+v-\tau\delta\,\operatorname{sign}(v), & \text{otherwise},
+\end{cases}
+$$
+
+clipped at zero for nonnegative coefficients (exact, since the problem is
+separable and one-dimensional). It is zero only for $v=0$, so the penalty
+does not select a support. The KKT condition is
+$g_j+\lambda\psi_\delta(x_j)=0$, or $g_j\ge0$ at a nonnegative zero.
+
+With $w=-A^\top u$, the conjugate of $\lambda\rho_\delta$ is
+$w^2/(2\lambda)$ on $|w|\le\lambda\delta$ (for $x\ge0$, $w_+^2/(2\lambda)$
+on $w_+\le\lambda\delta$). The dual point is scaled by
+$s=\max(1,\|w\|_\infty/(\lambda\delta))$ (positive part when
+nonnegative), and the gap is
+
+$$
+P(x)+\frac{\ell^*(u)+\sum_jw_j^2/(2\lambda)}{s^2}+\frac{b^\top u}{s}.
+$$
+
+At the optimum $w=\lambda\psi_\delta(x)$, so $s=1$ and the gap vanishes.
+For $\delta\to0$, $(\lambda/\delta)\rho_\delta$ tends to $\lambda|x|$ up to a
+constant, recovering LASSO. Since no finite $\lambda$ gives $x=0$ (unless
+$A^\top\psi(b)=0$), there is no $\lambda_{\max}$; reported `kkt_ratio` uses
+$\lambda\delta$, the largest penalty slope, as its scale.
+
 ## Disjoint group LASSO
 
 For a partition $\mathcal G$ of the coefficient indices, Prism also solves

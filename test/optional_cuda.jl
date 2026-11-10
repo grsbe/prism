@@ -76,3 +76,4 @@ end
 
 include("optional_cuda_group.jl")
 include("optional_cuda_block.jl")
+include("optional_cuda_huber.jl")

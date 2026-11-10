@@ -110,15 +110,11 @@ function solve!(solver::FISTASolver, lambda; warm_start=true)
         copyto!(previous, x)
         mul!(solver.residual, problem.A, y)
         @. solver.residual = solver.residual - problem.b
+        _loss_derivative!(problem.loss, solver.residual)
         mul!(solver.gradient, adjoint(problem.A), solver.residual)
         @. solver.prox_input = y - solver.step * solver.gradient
-        threshold = solver.step * lambda
-        if problem.constraint == :nonnegative
-            @. x = max(solver.prox_input - threshold, zero(eltype(x)))
-        else
-            @. x = sign(solver.prox_input) *
-                   max(abs(solver.prox_input) - threshold, zero(eltype(x)))
-        end
+        _penalty_prox!(problem.penalty, x, solver.prox_input,
+                       solver.step * lambda, problem.constraint)
         if iteration % stop.check_every == 0 || iteration == stop.maxiter
             if stop isa KKTStop
                 kkt = _lasso_kkt_residual!(problem, x, lambda,
@@ -136,7 +132,8 @@ function solve!(solver::FISTASolver, lambda; warm_start=true)
                         kkt = _lasso_kkt_residual!(problem, x, lambda,
                                                    solver.residual, solver.gradient,
                                                    solver.prox_input)
-                        scale = max(norm(adjoint(problem.A) * problem.b, Inf), 1)
+                        scale = max(norm(_loss_correlations(problem.A, problem.b,
+                                                            problem.loss), Inf), 1)
                         if kkt <= stop.tol * scale
                             return _make_result(problem, x, lambda, true,
                                                 :kkt_zero_penalty, iteration,
@@ -145,7 +142,7 @@ function solve!(solver::FISTASolver, lambda; warm_start=true)
                         end
                     else
                         gap = lasso_dual_gap(problem, x, lambda)
-                        if gap <= _dual_gap_tolerance(problem.b, stop)
+                        if gap <= _dual_gap_tolerance(problem.b, problem.loss, stop)
                             return _make_result(problem, x, lambda, true,
                                                 :dual_gap, iteration,
                                                 (step=solver.step,

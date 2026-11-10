@@ -119,10 +119,13 @@ end
 
 function _make_result(problem, x, lambda, converged, reason, iterations, diagnostics)
     owned_x = copy(x)
-    residual_norm = norm(problem.A * owned_x - problem.b)
+    residual = problem.A * owned_x - problem.b
+    residual_norm = norm(residual)
     kkt = lasso_kkt_residual(problem, owned_x, lambda)
-    ratio = iszero(lambda) ? (iszero(kkt) ? zero(kkt) : oftype(kkt, Inf)) : kkt / lambda
-    objective = 0.5 * residual_norm^2 + lambda * sum(abs, owned_x)
+    ratio = iszero(lambda) ? (iszero(kkt) ? zero(kkt) : oftype(kkt, Inf)) :
+            kkt / (lambda * _penalty_slope(problem.penalty))
+    objective = _loss_value(problem.loss, residual) +
+                lambda * _penalty_value(problem.penalty, owned_x)
     T = promote_type(typeof(float(lambda)), typeof(objective))
     _warn_kkt_ratio(ratio, lambda, reason)
     return SolveResult(owned_x, T(lambda), T(objective), T(residual_norm),

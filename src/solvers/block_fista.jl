@@ -1,23 +1,30 @@
 """
     BlockLassoRidgeProblem(A, B, b; constraint=:signed,
-                           x_constraint=constraint, z_constraint=constraint)
+                           x_constraint=constraint, z_constraint=constraint,
+                           loss=LeastSquares(), penalty=L1())
 
-The design for `min ½‖Ax+Bz-b‖² + λ‖x‖₁ + γ/2‖z‖²`. With
+The design for `min ℓ(Ax+Bz-b) + λR(x) + γ/2‖z‖²`, where the loss `ℓ`
+defaults to ½‖r‖² and `loss=Huber(delta)` selects the Huber loss. The
+sparse-block penalty `R` defaults to `L1()`; `penalty=Huber(delta)` selects
+the (non-sparse) Huber penalty. With
 `x_constraint` and `z_constraint` independently select `:signed` or
 `:nonnegative`. The legacy `constraint` keyword sets both unless overridden.
 """
-struct BlockLassoRidgeProblem{MA<:AbstractMatrix,MB<:AbstractMatrix,VB<:AbstractVector}
+struct BlockLassoRidgeProblem{MA<:AbstractMatrix,MB<:AbstractMatrix,VB<:AbstractVector,L<:DataLoss,R<:CoefficientPenalty}
     A::MA
     B::MB
     b::VB
     x_constraint::Symbol
     z_constraint::Symbol
+    loss::L
+    penalty::R
 end
 
 function BlockLassoRidgeProblem(A::AbstractMatrix, B::AbstractMatrix,
                                 b::AbstractVector; constraint=:signed,
-                                x_constraint=constraint, z_constraint=constraint)
-    LassoProblem(A, b; constraint=x_constraint)
+                                x_constraint=constraint, z_constraint=constraint,
+                                loss=LeastSquares(), penalty=L1())
+    validated = LassoProblem(A, b; constraint=x_constraint, loss, penalty)
     z_constraint in (:signed, :nonnegative) ||
         throw(ArgumentError("z_constraint must be :signed or :nonnegative"))
     size(B, 1) == length(b) ||
@@ -28,14 +35,16 @@ function BlockLassoRidgeProblem(A::AbstractMatrix, B::AbstractMatrix,
     finite_B = B isa AbstractSparseMatrix ? all(isfinite, nonzeros(B)) :
                all(isfinite, B)
     finite_B || throw(ArgumentError("B must be finite"))
-    return BlockLassoRidgeProblem(A, B, b, x_constraint, z_constraint)
+    return BlockLassoRidgeProblem(A, B, b, x_constraint, z_constraint,
+                                  validated.loss, validated.penalty)
 end
 
 """
     block_dual_gap(problem, x, z, lambda, ridge)
 
 Primal-dual gap for a positive ridge penalty and positive L1 penalty.
-The data residual is scaled to satisfy the sparse-block dual constraint.
+The loss derivative `u = ψ(Ax+Bz-b)` is scaled to satisfy the sparse-block
+dual constraint.
 The ridge-block conjugate is quadratic; for nonnegative ridge coefficients
 it uses only the negative part of `B'u`.
 """
@@ -49,19 +58,20 @@ function block_dual_gap(problem::BlockLassoRidgeProblem, x, z,
     problem.z_constraint == :nonnegative && minimum(z) < 0 &&
         throw(ArgumentError("z must be nonnegative"))
     residual = problem.A * x + problem.B * z - problem.b
-    gx = adjoint(problem.A) * residual
-    bound = problem.x_constraint == :signed ?
-            maximum(abs, gx) : max(zero(lambda), maximum(-gx))
-    scale = max(one(float(lambda)), bound / lambda)
-    gz = adjoint(problem.B) * residual
+    primal = _loss_value(problem.loss, residual) +
+             lambda * _penalty_value(problem.penalty, x) +
+             0.5 * ridge * sum(abs2, z)
+    u = _loss_derivative!(problem.loss, residual)
+    gx = adjoint(problem.A) * u
+    scale, penalty_dual = _penalty_dual(problem.penalty, gx, lambda,
+                                        problem.x_constraint)
+    gz = adjoint(problem.B) * u
     ridge_dual = problem.z_constraint == :signed ?
                  sum(abs2, gz) :
                  sum(abs2, min.(gz, zero(eltype(gz))))
-    primal = 0.5 * sum(abs2, residual) + lambda * sum(abs, x) +
-             0.5 * ridge * sum(abs2, z)
-    gap = primal + 0.5 * sum(abs2, residual) / scale^2 +
-          dot(problem.b, residual) / scale +
-          ridge_dual / (2 * ridge * scale^2)
+    gap = primal + _loss_conjugate(problem.loss, u) / scale^2 +
+          dot(problem.b, u) / scale +
+          ridge_dual / (2 * ridge * scale^2) + penalty_dual / scale^2
     return max(zero(gap), gap)
 end
 
@@ -93,16 +103,12 @@ function block_kkt_residual(problem::BlockLassoRidgeProblem, x, z,
         throw(ArgumentError("x must be nonnegative"))
     problem.z_constraint == :nonnegative && minimum(z) < 0 &&
         throw(ArgumentError("z must be nonnegative"))
-    residual = problem.A * x + problem.B * z - problem.b
+    residual = _loss_derivative!(problem.loss,
+                                 problem.A * x + problem.B * z - problem.b)
     gx = adjoint(problem.A) * residual
     gz = adjoint(problem.B) * residual .+ ridge .* z
-    vx = if problem.x_constraint == :nonnegative
-        ifelse.(x .> 0, abs.(gx .+ lambda), max.(-gx .- lambda, 0))
-    else
-        ifelse.(x .> 0, abs.(gx .+ lambda),
-                ifelse.(x .< 0, abs.(gx .- lambda),
-                        max.(abs.(gx) .- lambda, 0)))
-    end
+    vx = _kkt_violation.(problem.penalty, x, gx, lambda,
+                         problem.x_constraint == :nonnegative)
     vz = problem.z_constraint == :nonnegative ?
          ifelse.(z .> 0, abs.(gz), max.(-gz, 0)) : abs.(gz)
     return max(maximum(vx), maximum(vz))
@@ -112,12 +118,14 @@ function _block_result(problem, coefficients, nx, lambda, ridge,
                        converged, reason, iterations, diagnostics)
     x = copy(view(coefficients, 1:nx))
     z = copy(view(coefficients, nx+1:length(coefficients)))
-    residual = norm(problem.A * x + problem.B * z - problem.b)
-    objective = 0.5 * residual^2 + lambda * sum(abs, x) +
+    r = problem.A * x + problem.B * z - problem.b
+    residual = norm(r)
+    objective = _loss_value(problem.loss, r) +
+                lambda * _penalty_value(problem.penalty, x) +
                 0.5 * ridge * sum(abs2, z)
     kkt = block_kkt_residual(problem, x, z, lambda, ridge)
     ratio = iszero(lambda) ? (iszero(kkt) ? zero(kkt) : oftype(kkt, Inf)) :
-            kkt / lambda
+            kkt / (lambda * _penalty_slope(problem.penalty))
     T = promote_type(typeof(objective), typeof(float(lambda)),
                      typeof(float(ridge)))
     _warn_kkt_ratio(ratio, lambda, reason)
@@ -211,9 +219,11 @@ function BlockFISTASolver(problem::BlockLassoRidgeProblem, ridge;
     combined = dense_cpu ? hcat(problem.A, problem.B) :
                BlockDesign(problem.A, problem.B, problem.b)
     # The two constituent matrices and b were validated by the block problem.
-    base_problem = dense_cpu ? LassoProblem(combined, problem.b) :
-                   LassoProblem{typeof(combined),typeof(problem.b)}(
-                       combined, problem.b, :signed)
+    base_problem = dense_cpu ?
+                   LassoProblem(combined, problem.b; loss=problem.loss) :
+                   LassoProblem{typeof(combined),typeof(problem.b),
+                                typeof(problem.loss),L1}(
+                       combined, problem.b, :signed, problem.loss, L1())
     initial = similar(problem.b, T, nx+nz)
     @views initial[1:nx] .= x_initial
     @views initial[nx+1:end] .= z_initial
@@ -252,6 +262,7 @@ function solve!(solver::BlockFISTASolver, lambda; warm_start=true)
         copyto!(previous, x)
         mul!(base.residual, base.problem.A, y)
         @. base.residual = base.residual - p.b
+        _loss_derivative!(p.loss, base.residual)
         mul!(base.gradient, adjoint(base.problem.A), base.residual)
         @views base.gradient[nx+1:end] .+= ridge .* y[nx+1:end]
         @. base.prox_input = y - t * base.gradient
@@ -260,12 +271,8 @@ function solve!(solver::BlockFISTASolver, lambda; warm_start=true)
             smooth_input = base.prox_input[nx+1:end]
             sparse_output = x[1:nx]
             smooth_output = x[nx+1:end]
-            if p.x_constraint == :nonnegative
-                @. sparse_output = max(sparse_input - t * lambda, 0)
-            else
-                @. sparse_output = sign(sparse_input) *
-                                   max(abs(sparse_input) - t * lambda, 0)
-            end
+            _penalty_prox!(p.penalty, sparse_output, sparse_input,
+                           t * lambda, p.x_constraint)
             if p.z_constraint == :nonnegative
                 @. smooth_output = max(smooth_input, 0)
             else
@@ -288,8 +295,8 @@ function solve!(solver::BlockFISTASolver, lambda; warm_start=true)
                         kkt = block_kkt_residual(p, view(x, 1:nx),
                                                  view(x, nx+1:length(x)),
                                                  lambda, ridge)
-                        scale = max(norm(adjoint(p.A) * p.b, Inf),
-                                    norm(adjoint(p.B) * p.b, Inf), 1)
+                        scale = max(norm(_loss_correlations(p.A, p.b, p.loss), Inf),
+                                    norm(_loss_correlations(p.B, p.b, p.loss), Inf), 1)
                         if kkt <= base.stop.tol * scale
                             return _block_result(p, x, nx, lambda, ridge,
                                                  true, :kkt_dual_degenerate,
@@ -300,7 +307,7 @@ function solve!(solver::BlockFISTASolver, lambda; warm_start=true)
                         gap = block_dual_gap(p, view(x, 1:nx),
                                              view(x, nx+1:length(x)),
                                              lambda, ridge)
-                        if gap <= _dual_gap_tolerance(p.b, base.stop)
+                        if gap <= _dual_gap_tolerance(p.b, p.loss, base.stop)
                             return _block_result(p, x, nx, lambda, ridge,
                                                  true, :dual_gap, iteration,
                                                  (step=t, iterate_change=change,

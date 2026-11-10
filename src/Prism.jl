@@ -4,6 +4,8 @@ using LinearAlgebra
 using SparseArrays
 using Statistics
 
+include("loss.jl")
+include("penalty.jl")
 include("problem.jl")
 include("result.jl")
 include("optimality.jl")
@@ -21,6 +23,7 @@ include("compatibility_api.jl")
 
 export GroupLassoProblem, GroupFISTASolver, group_lasso_kkt_residual
 export group_lasso_dual_gap
+export DataLoss, LeastSquares, Huber, L1
 export LassoProblem, KKTStop, GradientMappingStop, DualGapStop, SolveResult
 export FISTASolver, ADMMSolver, solve!, solve_path!, lasso_kkt_residual
 export objective_value, lasso_dual_gap
