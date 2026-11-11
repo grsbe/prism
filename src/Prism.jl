@@ -1,6 +1,8 @@
 module Prism
 
 using LinearAlgebra
+using Random
+using SpecialFunctions: logerfc
 using SparseArrays
 using Statistics
 
@@ -9,6 +11,7 @@ include("penalty.jl")
 include("problem.jl")
 include("result.jl")
 include("optimality.jl")
+include("solvers/fista_core.jl")
 include("solvers/fista.jl")
 include("solvers/group_fista.jl")
 include("solvers/admm.jl")
@@ -20,6 +23,7 @@ include("solvers/block_fista.jl")
 include("solvers/laplacian_fista.jl")
 include("solvers/tv_pdhg.jl")
 include("compatibility_api.jl")
+include("sampling/gibbs_posterior.jl")
 
 export GroupLassoProblem, GroupFISTASolver, group_lasso_kkt_residual
 export group_lasso_dual_gap

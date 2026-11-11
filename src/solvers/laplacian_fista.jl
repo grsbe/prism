@@ -154,88 +154,52 @@ end
 
 function solve!(solver::LaplacianFISTASolver, lambda; warm_start=true)
     _validate_lambda(lambda)
-    p, base, t = solver.problem, solver.base, solver.step
-    x, y, previous = base.x, base.y, base.previous
-    !warm_start && fill!(x, zero(eltype(x)))
-    copyto!(y, x)
-    if base.stop isa KKTStop
-        kkt = laplacian_kkt_residual(p, x, lambda)
-        if kkt <= _kkt_tolerance(base.stop, lambda)
-            return _laplacian_result(p, x, lambda, true, :kkt, 0, (step=t,))
-        end
-    end
-    momentum_t = one(t)
-    for iteration in 1:base.stop.maxiter
-        copyto!(previous, x)
-        mul!(base.residual, p.A, y)
-        @. base.residual = base.residual - p.b
-        mul!(base.gradient, adjoint(p.A), base.residual)
-        if p.smooth != 0
-            _laplacian2d!(solver.laplacian, y, p.image_size)
-            _laplacian2d!(solver.bilaplacian, solver.laplacian, p.image_size)
-            @. base.gradient = base.gradient + p.smooth * solver.bilaplacian
-        end
-        @. base.prox_input = y - t * base.gradient
-        if p.constraint == :nonnegative
-            @. x = max(base.prox_input - t * lambda, 0)
-        else
-            @. x = sign(base.prox_input) *
-                   max(abs(base.prox_input) - t * lambda, 0)
-        end
-        if iteration % base.stop.check_every == 0 ||
-           iteration == base.stop.maxiter
-            if base.stop isa KKTStop
-                kkt = laplacian_kkt_residual(p, x, lambda)
-                if kkt <= _kkt_tolerance(base.stop, lambda)
-                    return _laplacian_result(p, x, lambda, true, :kkt,
-                                             iteration, (step=t,))
-                end
-            elseif base.stop isa DualGapStop
-                change = norm(x - previous, Inf)
-                if change <= base.stop.tol * norm(x, Inf)
-                    if iszero(lambda)
-                        kkt = laplacian_kkt_residual(p, x, lambda)
-                        scale = max(norm(adjoint(p.A) * p.b, Inf), 1)
-                        if kkt <= base.stop.tol * scale
-                            return _laplacian_result(p, x, lambda, true,
-                                                     :kkt_zero_penalty,
-                                                     iteration,
-                                                     (step=t,
-                                                      iterate_change=change))
-                        end
-                    else
-                        gap = laplacian_dual_gap(p, x, lambda)
-                        if gap <= _dual_gap_tolerance(p.b, base.stop)
-                            return _laplacian_result(p, x, lambda, true,
-                                                     :dual_gap, iteration,
-                                                     (step=t,
-                                                      iterate_change=change,
-                                                      dual_gap=gap))
-                        end
-                    end
-                end
-            else
-                @. base.prox_input = (y - x) / t
-                mapping = norm(base.prox_input, Inf)
-                scale = max(norm(base.gradient, Inf), eps(float(t)))
-                if mapping <= base.stop.atol + base.stop.rtol * scale
-                    result = _laplacian_result(p, x, lambda, true,
-                                               :gradient_mapping, iteration,
-                                               (step=t, gradient_mapping_residual=mapping,
-                                                gradient_mapping_scale=scale))
-                    return result
-                end
-            end
-        end
-        next_t = (one(momentum_t) + sqrt(one(momentum_t) + 4momentum_t^2)) / 2
-        momentum = (momentum_t - one(momentum_t)) / next_t
-        @. y = x + momentum * (x - previous)
-        momentum_t = next_t
-    end
-    result = _laplacian_result(p, x, lambda, false, :maxiter,
-                               base.stop.maxiter, (step=t,))
-    return result
+    return _fista_solve!(solver, lambda; warm_start)
 end
+
+_fista_workspace(solver::LaplacianFISTASolver) = solver.base
+_fista_step(solver::LaplacianFISTASolver) = solver.step
+
+function _fista_gradient!(solver::LaplacianFISTASolver, y)
+    p, base = solver.problem, solver.base
+    mul!(base.residual, p.A, y)
+    @. base.residual = base.residual - p.b
+    mul!(base.gradient, adjoint(p.A), base.residual)
+    if p.smooth != 0
+        _laplacian2d!(solver.laplacian, y, p.image_size)
+        _laplacian2d!(solver.bilaplacian, solver.laplacian, p.image_size)
+        @. base.gradient = base.gradient + p.smooth * solver.bilaplacian
+    end
+    return nothing
+end
+
+function _fista_prox!(solver::LaplacianFISTASolver, step, lambda)
+    base = solver.base
+    if solver.problem.constraint == :nonnegative
+        @. base.x = max(base.prox_input - step * lambda, 0)
+    else
+        @. base.x = sign(base.prox_input) *
+                    max(abs(base.prox_input) - step * lambda, 0)
+    end
+    return nothing
+end
+
+_fista_kkt(solver::LaplacianFISTASolver, lambda) =
+    laplacian_kkt_residual(solver.problem, solver.base.x, lambda)
+
+_fista_kkt_scale(solver::LaplacianFISTASolver) =
+    max(norm(adjoint(solver.problem.A) * solver.problem.b, Inf), 1)
+
+_fista_gap(solver::LaplacianFISTASolver, lambda) =
+    laplacian_dual_gap(solver.problem, solver.base.x, lambda)
+
+_fista_gap_tolerance(solver::LaplacianFISTASolver, stop) =
+    _dual_gap_tolerance(solver.problem.b, stop)
+
+_fista_result(solver::LaplacianFISTASolver, lambda, converged, reason,
+              iterations, diagnostics) =
+    _laplacian_result(solver.problem, solver.base.x, lambda, converged,
+                      reason, iterations, diagnostics)
 
 initialize(problem::LaplacianLassoProblem, method::FISTA; x0=nothing) =
     LaplacianFISTASolver(problem; step=method.step, stop=method.stop,

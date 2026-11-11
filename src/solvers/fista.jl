@@ -43,6 +43,19 @@ function _power_step(A, b; iterations=50, safety=1.2)
     return inv(T(safety) * norm(Av)^2)
 end
 
+"""
+Squared spectral norm of `A` for step-size bounds: exact for CPU dense
+matrices with at most 250,000 elements, otherwise the power estimate with
+its safety factor (the same rule as `FISTASolver(step=:auto)`).
+"""
+function _squared_norm_bound(A, b)
+    if A isa StridedMatrix && length(A) <= 250_000
+        return opnorm(A)^2
+    end
+    iszero(norm(A)) && return zero(real(eltype(A)))
+    return inv(_power_step(A, b))
+end
+
 function FISTASolver(problem::LassoProblem; step=:auto, stop=DualGapStop(),
                      x0=nothing, power_iterations=50, power_safety=1.2)
     stop isa Union{KKTStop,GradientMappingStop,DualGapStop} ||
@@ -91,95 +104,51 @@ fallback. `GradientMappingStop` remains available explicitly.
 """
 function solve!(solver::FISTASolver, lambda; warm_start=true)
     _validate_lambda(lambda)
-    problem, stop = solver.problem, solver.stop
-    x, y, previous = solver.x, solver.y, solver.previous
-    if !warm_start
-        fill!(x, zero(eltype(x)))
-    end
-    copyto!(y, x)
-    if stop isa KKTStop
-        kkt = _lasso_kkt_residual!(problem, x, lambda, solver.residual,
-                                   solver.gradient, solver.prox_input)
-        if kkt <= _kkt_tolerance(stop, lambda)
-            return _make_result(problem, x, lambda, true, :kkt, 0,
-                                (step=solver.step,))
-        end
-    end
-    t = one(solver.step)
-    for iteration in 1:stop.maxiter
-        copyto!(previous, x)
-        mul!(solver.residual, problem.A, y)
-        @. solver.residual = solver.residual - problem.b
-        _loss_derivative!(problem.loss, solver.residual)
-        mul!(solver.gradient, adjoint(problem.A), solver.residual)
-        @. solver.prox_input = y - solver.step * solver.gradient
-        _penalty_prox!(problem.penalty, x, solver.prox_input,
-                       solver.step * lambda, problem.constraint)
-        if iteration % stop.check_every == 0 || iteration == stop.maxiter
-            if stop isa KKTStop
-                kkt = _lasso_kkt_residual!(problem, x, lambda,
-                                           solver.residual, solver.gradient,
-                                           solver.prox_input)
-                if kkt <= _kkt_tolerance(stop, lambda)
-                    return _make_result(problem, x, lambda, true, :kkt,
-                                        iteration, (step=solver.step,))
-                end
-            elseif stop isa DualGapStop
-                change = norm(x - previous, Inf)
-                coefficient_scale = norm(x, Inf)
-                if change <= stop.tol * coefficient_scale
-                    if iszero(lambda)
-                        kkt = _lasso_kkt_residual!(problem, x, lambda,
-                                                   solver.residual, solver.gradient,
-                                                   solver.prox_input)
-                        scale = max(norm(_loss_correlations(problem.A, problem.b,
-                                                            problem.loss), Inf), 1)
-                        if kkt <= stop.tol * scale
-                            return _make_result(problem, x, lambda, true,
-                                                :kkt_zero_penalty, iteration,
-                                                (step=solver.step,
-                                                 iterate_change=change))
-                        end
-                    else
-                        gap = lasso_dual_gap(problem, x, lambda)
-                        if gap <= _dual_gap_tolerance(problem.b, problem.loss, stop)
-                            return _make_result(problem, x, lambda, true,
-                                                :dual_gap, iteration,
-                                                (step=solver.step,
-                                                 iterate_change=change,
-                                                 dual_gap=gap))
-                        end
-                    end
-                end
-            else
-                @. solver.prox_input = (y - x) / solver.step
-                mapping = norm(solver.prox_input, Inf)
-                scale = if problem.constraint == :nonnegative && !iszero(lambda)
-                    # Positive gradients at zero coefficients point out of the
-                    # feasible descent cone and must not loosen the scale.
-                    @. solver.prox_input = ifelse(x > 0, abs(solver.gradient),
-                                                  max(-solver.gradient, 0))
-                    max(lambda, maximum(solver.prox_input),
-                        eps(float(solver.step)))
-                else
-                    max(norm(solver.gradient, Inf), eps(float(solver.step)))
-                end
-                if mapping <= stop.atol + stop.rtol * scale
-                    result = _make_result(problem, x, lambda, true,
-                                          :gradient_mapping, iteration,
-                                          (step=solver.step,
-                                           gradient_mapping_residual=mapping,
-                                           gradient_mapping_scale=scale))
-                    return result
-                end
-            end
-        end
-        next_t = (one(t) + sqrt(one(t) + 4t^2)) / 2
-        momentum = (t - one(t)) / next_t
-        @. y = x + momentum * (x - previous)
-        t = next_t
-    end
-    result = _make_result(problem, x, lambda, false, :maxiter,
-                          stop.maxiter, (step=solver.step,))
-    return result
+    return _fista_solve!(solver, lambda; warm_start)
 end
+
+_fista_workspace(solver::FISTASolver) = solver
+
+function _fista_gradient!(solver::FISTASolver, y)
+    problem = solver.problem
+    mul!(solver.residual, problem.A, y)
+    @. solver.residual = solver.residual - problem.b
+    _loss_derivative!(problem.loss, solver.residual)
+    mul!(solver.gradient, adjoint(problem.A), solver.residual)
+    return nothing
+end
+
+_fista_prox!(solver::FISTASolver, step, lambda) =
+    _penalty_prox!(solver.problem.penalty, solver.x, solver.prox_input,
+                   step * lambda, solver.problem.constraint)
+
+# Reuses the workspace; the gradient at y is no longer needed at this point.
+_fista_kkt(solver::FISTASolver, lambda) =
+    _lasso_kkt_residual!(solver.problem, solver.x, lambda, solver.residual,
+                         solver.gradient, solver.prox_input)
+
+_fista_kkt_scale(solver::FISTASolver) =
+    max(norm(_loss_correlations(solver.problem.A, solver.problem.b,
+                                solver.problem.loss), Inf), 1)
+
+_fista_gap(solver::FISTASolver, lambda) =
+    lasso_dual_gap(solver.problem, solver.x, lambda)
+
+_fista_gap_tolerance(solver::FISTASolver, stop) =
+    _dual_gap_tolerance(solver.problem.b, solver.problem.loss, stop)
+
+function _fista_mapping_scale(solver::FISTASolver, lambda, step)
+    if solver.problem.constraint == :nonnegative && !iszero(lambda)
+        # Positive gradients at zero coefficients point out of the
+        # feasible descent cone and must not loosen the scale.
+        @. solver.prox_input = ifelse(solver.x > 0, abs(solver.gradient),
+                                      max(-solver.gradient, 0))
+        return max(lambda, maximum(solver.prox_input), eps(float(step)))
+    end
+    return max(norm(solver.gradient, Inf), eps(float(step)))
+end
+
+_fista_result(solver::FISTASolver, lambda, converged, reason, iterations,
+              diagnostics) =
+    _make_result(solver.problem, solver.x, lambda, converged, reason,
+                 iterations, diagnostics)

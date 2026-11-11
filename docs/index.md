@@ -15,7 +15,9 @@ the main design goal: the code should make the modeling decisions visible.
    cost accuracy or memory, and how to benchmark a real workload.
 4. [Grouped cross-validation](cross_validation.md): ordered folds and
    training-fold lambda scaling.
-5. [Architecture](architecture.md): where solvers, compatibility calls,
+5. [Posterior sampling](posterior_sampling.md): uncertainty of the LASSO
+   coefficients at one chosen λ.
+6. [Architecture](architecture.md): where solvers, compatibility calls,
    and future methods belong.
 
 The repository [README](../README.md) is the quick start and current

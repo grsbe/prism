@@ -1,0 +1,118 @@
+diff -ru prism_refactor_check/src/solvers/admm.jl prism_fixes_check/src/solvers/admm.jl
+--- prism_refactor_check/src/solvers/admm.jl	2026-11-11 13:09:17.272074109 +0000
++++ prism_fixes_check/src/solvers/admm.jl	2026-11-11 13:16:52.561968096 +0000
+@@ -84,7 +84,8 @@
+                (dual_gap=gap,)
+     end
+     kkt = lasso_kkt_residual(problem, z, lambda)
+-    tolerance = stop isa DualGapStop ? KKTStop().atol :
++    tolerance = stop isa DualGapStop ?
++                stop.tol * norm(adjoint(problem.A) * problem.b, Inf) :
+                 _kkt_tolerance(stop, lambda)
+     reason = stop isa DualGapStop ? :kkt_zero_penalty : :kkt
+     return kkt <= tolerance, reason, (kkt_residual=kkt,)
+diff -ru prism_refactor_check/src/solvers/block_fista.jl prism_fixes_check/src/solvers/block_fista.jl
+--- prism_refactor_check/src/solvers/block_fista.jl	2026-11-11 13:12:09.165469481 +0000
++++ prism_fixes_check/src/solvers/block_fista.jl	2026-11-11 13:14:20.434522047 +0000
+@@ -159,6 +159,13 @@
+     i == 2 ? size(D.A, 2) + size(D.B, 2) : 1
+ LinearAlgebra.norm(D::BlockDesign) = sqrt(sum(abs2, D.A) + sum(abs2, D.B))
+ 
++# BlockDesign has no getindex, so the generic matrix display would throw.
++function Base.show(io::IO, D::BlockDesign)
++    print(io, size(D, 1), "×", size(D, 2), " BlockDesign{", eltype(D),
++          "} [A B] with ", size(D.A, 2), " + ", size(D.B, 2), " columns")
++end
++Base.show(io::IO, ::MIME"text/plain", D::BlockDesign) = show(io, D)
++
+ function LinearAlgebra.mul!(out::AbstractVector, D::BlockDesign,
+                             coefficients::AbstractVector)
+     nx = size(D.A, 2)
+diff -ru prism_refactor_check/src/solvers/constrained.jl prism_fixes_check/src/solvers/constrained.jl
+--- prism_refactor_check/src/solvers/constrained.jl	2026-11-11 13:12:09.165469481 +0000
++++ prism_fixes_check/src/solvers/constrained.jl	2026-11-11 13:16:52.561968096 +0000
+@@ -59,6 +59,12 @@
+     else
+         @. out = sign(v) * max(abs(v) - threshold, zero(eltype(out)))
+     end
++    # Rounding in the threshold can leave the result marginally outside the
++    # ball for long vectors; pull it back so later feasibility checks pass.
++    total = sum(abs, out)
++    if total > radius * (1 + 8 * eps(typeof(total)))
++        out .*= radius / total
++    end
+     return out
+ end
+ 
+@@ -216,7 +222,7 @@
+     base = ADMMSolver(LassoProblem(problem.A, problem.b;
+                                    constraint=problem.constraint);
+                       rho, stop, x0, feasibility_atol, feasibility_rtol)
+-    t = inv(max(opnorm(problem.A)^2, 1))
++    t = inv(max(_squared_norm_bound(problem.A, problem.b), 1))
+     return ConstrainedADMMSolver(problem, base, t)
+ end
+ 
+diff -ru prism_refactor_check/src/solvers/fista.jl prism_fixes_check/src/solvers/fista.jl
+--- prism_refactor_check/src/solvers/fista.jl	2026-11-11 13:12:09.164469467 +0000
++++ prism_fixes_check/src/solvers/fista.jl	2026-11-11 13:14:20.434522047 +0000
+@@ -43,6 +43,19 @@
+     return inv(T(safety) * norm(Av)^2)
+ end
+ 
++"""
++Squared spectral norm of `A` for step-size bounds: exact for CPU dense
++matrices with at most 250,000 elements, otherwise the power estimate with
++its safety factor (the same rule as `FISTASolver(step=:auto)`).
++"""
++function _squared_norm_bound(A, b)
++    if A isa StridedMatrix && length(A) <= 250_000
++        return opnorm(A)^2
++    end
++    iszero(norm(A)) && return zero(real(eltype(A)))
++    return inv(_power_step(A, b))
++end
++
+ function FISTASolver(problem::LassoProblem; step=:auto, stop=DualGapStop(),
+                      x0=nothing, power_iterations=50, power_safety=1.2)
+     stop isa Union{KKTStop,GradientMappingStop,DualGapStop} ||
+diff -ru prism_refactor_check/src/solvers/tv_pdhg.jl prism_fixes_check/src/solvers/tv_pdhg.jl
+--- prism_refactor_check/src/solvers/tv_pdhg.jl	2026-11-11 13:09:17.272074109 +0000
++++ prism_fixes_check/src/solvers/tv_pdhg.jl	2026-11-11 13:14:20.434522047 +0000
+@@ -120,7 +120,9 @@
+     problem.constraint == :nonnegative && minimum(x) < 0 &&
+         throw(ArgumentError("x0 must be nonnegative"))
+     # ‖[A; ∇]‖² ≤ ‖A‖² + 8 on a nearest-neighbor 2D grid.
+-    t = if step === :auto || step === :exact
++    t = if step === :auto
++        T(0.99 / sqrt(_squared_norm_bound(problem.A, problem.b) + 8))
++    elseif step === :exact
+         T(0.99 / sqrt(opnorm(problem.A)^2 + 8))
+     elseif step === :frobenius
+         T(0.99 / sqrt(sum(abs2, problem.A) + 8))
+@@ -186,7 +188,12 @@
+ 
+ function _tv_converged(solver, lambda, conditions)
+     stop, p = solver.stop, solver.problem
+-    stationarity_tol = stop.atol + stop.rtol * lambda
++    # At lambda == 0 the L1 scale vanishes; use the TV weight (or, with no
++    # regularizer at all, the data gradient at zero) as the gradient scale.
++    stationarity_scale = !iszero(lambda) ? lambda :
++                         !iszero(p.tv_weight) ? p.tv_weight :
++                         max(norm(adjoint(p.A) * p.b, Inf), 1)
++    stationarity_tol = stop.atol + stop.rtol * stationarity_scale
+     data_tol = stop.atol + stop.rtol * max(norm(p.b, Inf), 1)
+     gap_tol = stop.atol * max(norm(solver.x, 1), 1) +
+               stop.rtol * max(p.tv_weight * conditions.tv, 1)
+diff -ru prism_refactor_check/src/workflows/cross_validation.jl prism_fixes_check/src/workflows/cross_validation.jl
+--- prism_refactor_check/src/workflows/cross_validation.jl	2026-11-11 13:09:17.272074109 +0000
++++ prism_fixes_check/src/workflows/cross_validation.jl	2026-11-11 13:14:20.434522047 +0000
+@@ -73,6 +73,8 @@
+                                                 log(DEFAULT_LASSO_PATH_MIN_RATIO);
+                                                 length=DEFAULT_LASSO_PATH_POINTS)),
+                         score=_cv_rmse)
++    problem.penalty isa L1 ||
++        throw(ArgumentError("cross_validate needs the L1 penalty: its lambda ratios are relative to each fold's zero-solution lambda_max, which the Huber penalty does not have"))
+     ids, n_folds = _validated_cv_folds(fold_ids, length(problem.b))
+     ratios = collect(lambda_ratios)
+     isempty(ratios) && throw(ArgumentError("lambda_ratios must be nonempty"))

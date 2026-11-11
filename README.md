@@ -29,7 +29,9 @@ project environment. From the checkout itself, run
 `julia --project=. -e 'using Pkg; Pkg.instantiate(); using Prism'`
 to verify it loads.
 
-CPU solvers need no optional packages. For GPU FISTA, add `CUDA` to the
+CPU solvers need no optional packages. Posterior sampling adds one regular
+dependency, `SpecialFunctions`; an environment that already uses a local
+checkout through `Pkg.develop` must run `Pkg.resolve()` once to pick it up. For GPU FISTA, add `CUDA` to the
 *calling project's* environment (`Pkg.add("CUDA")`), then check
 `CUDA.functional()` before moving the matrix and observations to the GPU.
 The optional Gurobi backend requires `JuMP`, `Gurobi`, and a working Gurobi
@@ -45,6 +47,7 @@ license in that environment.
 | Sparse block plus smooth ridge block; independent nonnegativity on each block | FISTA | Dense CPU, GPU dense/CSR |
 | L1 plus squared graph-Laplacian smoothing | FISTA | Dense CPU |
 | L1 plus 2D isotropic or anisotropic total variation | PDHG | Dense CPU |
+| Posterior samples for signed or nonnegative LASSO at one λ | Gibbs | Dense/sparse CPU, Float64 |
 
 For group sparsity, provide a partition of coefficient indices; every column
 must belong to exactly one nonempty group. For example:
@@ -104,6 +107,8 @@ no zero-solution $\lambda_{\max}$, so `lambda_grid` and the automatic
 `solve_path!(solver)` throw; pass explicit lambdas. It combines with either
 loss, runs with FISTA on CPU and GPU, and uses dual-gap stopping. ADMM and
 Gurobi reject it. `kkt_ratio` is reported relative to $\lambda\delta$.
+`cross_validate` also rejects it, because its lambda ratios are relative to
+`lambda_max`.
 
 ```julia
 problem = LassoProblem(A, b; constraint=:nonnegative, penalty=Huber(0.5))
@@ -196,6 +201,27 @@ fold. See [grouped cross-validation](docs/cross_validation.md). CV suggests path
 ratios but does not automatically refit on all observations or establish
 physical identifiability.
 
+## Posterior uncertainty
+
+A LASSO solution is a point estimate. `sample_posterior` draws coefficient
+vectors from the distribution
+$p(x\mid b)\propto\exp(-(\tfrac12\|Ax-b\|^2+\lambda\|x\|_1)/\sigma^2)$
+(restricted to $x\ge0$ for nonnegative problems), whose most probable point
+is the LASSO solution at the same $\lambda$:
+
+```julia
+problem = LassoProblem(A, b; constraint=:nonnegative)   # whitened A and b
+path = solve_path(problem, FISTA())
+samples = sample_posterior(problem, path[12])            # one chosen λ
+posterior_mean(samples); posterior_std(samples)
+credible_interval(samples; level=0.9)                    # (lower, upper)
+```
+
+The intervals are conditional on the chosen $\lambda$ and on
+`noise_variance` (default 1, correct for whitened data). Draws are never
+exactly zero. Check `samples.rhat` and `samples.ess` before trusting the
+numbers. See [posterior sampling](docs/posterior_sampling.md).
+
 ## Choosing a method
 
 Start with FISTA for a large or GPU-resident penalized LASSO problem. ADMM
@@ -217,6 +243,7 @@ pass a justified positive step. See [performance](docs/performance.md).
 - [Mathematical models and algorithms](docs/mathematics.md)
 - [Optimality and stopping](docs/optimality.md)
 - [Grouped cross-validation](docs/cross_validation.md)
+- [Posterior sampling at one λ](docs/posterior_sampling.md)
 - [Performance: defaults, costs, and trade-offs](docs/performance.md)
 - [Architecture and migration status](docs/architecture.md)
 
@@ -226,8 +253,9 @@ a published documentation site has not been configured.
 ## Status and tests
 
 Prism has tests for analytical solutions, KKT and primal-dual stopping,
-correlated columns, warm-start ownership, paths, and the SRT ADMM
-false-convergence example. Optional tests compare migrated objectives and
+correlated columns, warm-start ownership, paths, the SRT ADMM
+false-convergence example, and the posterior sampler against exact
+low-dimensional posteriors. Optional tests compare migrated objectives and
 the legacy FISTA stop with SRT, test CUDA on an NVIDIA RTX PRO 6000
 Blackwell, and compare against Gurobi. Run core tests from the repository:
 
@@ -235,7 +263,7 @@ Blackwell, and compare against Gurobi. Run core tests from the repository:
 julia --project=. test/runtests.jl
 ```
 
-Soft-min robust LASSO (the Huber loss is the available robust option), SRT's remaining hyperparameter/uncertainty workflows,
+Soft-min robust LASSO (the Huber loss is the available robust option), SRT's remaining hyperparameter and resampling workflows,
 and integrated disk checkpoints have not been migrated. Grouped LASSO CV is
 available. The Gurobi extension
 covers basic penalized LASSO only. No publication license has been chosen.

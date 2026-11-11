@@ -203,75 +203,38 @@ end
 
 function solve!(solver::GroupFISTASolver, lambda; warm_start=true)
     _validate_lambda(lambda)
-    problem, base = solver.problem, solver.base
-    x, y, previous = base.x, base.y, base.previous
-    stop = base.stop
-    !warm_start && fill!(x, zero(eltype(x)))
-    copyto!(y, x)
-    if stop isa KKTStop &&
-       group_lasso_kkt_residual(problem, x, lambda) <=
-       _kkt_tolerance(stop, lambda)
-        return _group_result(problem, x, lambda, true, :kkt, 0,
-                             (step=base.step,))
-    end
-    t = one(base.step)
-    for iteration in 1:stop.maxiter
-        copyto!(previous, x)
-        mul!(base.residual, problem.A, y)
-        @. base.residual = base.residual - problem.b
-        _loss_derivative!(problem.loss, base.residual)
-        mul!(base.gradient, adjoint(problem.A), base.residual)
-        @. base.prox_input = y - base.step * base.gradient
-        _group_prox!(x, base.prox_input, problem, base.step * lambda)
-        if iteration % stop.check_every == 0 || iteration == stop.maxiter
-            if stop isa KKTStop
-                if group_lasso_kkt_residual(problem, x, lambda) <=
-                   _kkt_tolerance(stop, lambda)
-                    return _group_result(problem, x, lambda, true, :kkt,
-                                         iteration, (step=base.step,))
-                end
-            elseif stop isa DualGapStop
-                change = norm(x - previous, Inf)
-                if change <= stop.tol * norm(x, Inf)
-                    if iszero(lambda)
-                        kkt = group_lasso_kkt_residual(problem, x, lambda)
-                        scale = max(norm(_loss_correlations(problem.A, problem.b,
-                                                            problem.loss), Inf), 1)
-                        if kkt <= stop.tol * scale
-                            return _group_result(problem, x, lambda, true,
-                                                 :kkt_zero_penalty, iteration,
-                                                 (step=base.step,
-                                                  iterate_change=change))
-                        end
-                    else
-                        gap = group_lasso_dual_gap(problem, x, lambda)
-                        if gap <= _dual_gap_tolerance(problem.b, problem.loss, stop)
-                            return _group_result(problem, x, lambda, true,
-                                                 :dual_gap, iteration,
-                                                 (step=base.step,
-                                                  iterate_change=change,
-                                                  dual_gap=gap))
-                        end
-                    end
-                end
-            else
-                @. base.prox_input = (y - x) / base.step
-                mapping = norm(base.prox_input, Inf)
-                scale = max(norm(base.gradient, Inf), eps(float(base.step)))
-                if mapping <= stop.atol + stop.rtol * scale
-                    return _group_result(problem, x, lambda, true,
-                                         :gradient_mapping, iteration,
-                                         (step=base.step,
-                                          gradient_mapping_residual=mapping,
-                                          gradient_mapping_scale=scale))
-                end
-            end
-        end
-        next_t = (one(t) + sqrt(one(t) + 4t^2)) / 2
-        momentum = (t - one(t)) / next_t
-        @. y = x + momentum * (x - previous)
-        t = next_t
-    end
-    return _group_result(problem, x, lambda, false, :maxiter,
-                         stop.maxiter, (step=base.step,))
+    return _fista_solve!(solver, lambda; warm_start)
 end
+
+_fista_workspace(solver::GroupFISTASolver) = solver.base
+
+function _fista_gradient!(solver::GroupFISTASolver, y)
+    problem, base = solver.problem, solver.base
+    mul!(base.residual, problem.A, y)
+    @. base.residual = base.residual - problem.b
+    _loss_derivative!(problem.loss, base.residual)
+    mul!(base.gradient, adjoint(problem.A), base.residual)
+    return nothing
+end
+
+_fista_prox!(solver::GroupFISTASolver, step, lambda) =
+    _group_prox!(solver.base.x, solver.base.prox_input, solver.problem,
+                 step * lambda)
+
+_fista_kkt(solver::GroupFISTASolver, lambda) =
+    group_lasso_kkt_residual(solver.problem, solver.base.x, lambda)
+
+_fista_kkt_scale(solver::GroupFISTASolver) =
+    max(norm(_loss_correlations(solver.problem.A, solver.problem.b,
+                                solver.problem.loss), Inf), 1)
+
+_fista_gap(solver::GroupFISTASolver, lambda) =
+    group_lasso_dual_gap(solver.problem, solver.base.x, lambda)
+
+_fista_gap_tolerance(solver::GroupFISTASolver, stop) =
+    _dual_gap_tolerance(solver.problem.b, solver.problem.loss, stop)
+
+_fista_result(solver::GroupFISTASolver, lambda, converged, reason, iterations,
+              diagnostics) =
+    _group_result(solver.problem, solver.base.x, lambda, converged, reason,
+                  iterations, diagnostics)

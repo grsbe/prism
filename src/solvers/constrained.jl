@@ -59,6 +59,12 @@ function _project_l1_ball!(out::AbstractVector, v::AbstractVector,
     else
         @. out = sign(v) * max(abs(v) - threshold, zero(eltype(out)))
     end
+    # Rounding in the threshold can leave the result marginally outside the
+    # ball for long vectors; pull it back so later feasibility checks pass.
+    total = sum(abs, out)
+    if total > radius * (1 + 8 * eps(typeof(total)))
+        out .*= radius / total
+    end
     return out
 end
 
@@ -120,9 +126,10 @@ function _constrained_result(problem, x, converged, reason, iterations,
 end
 
 """Reusable FISTA workspace for an L1-ball constrained least-squares problem."""
-struct ConstrainedFISTASolver{P,S}
+struct ConstrainedFISTASolver{P,S,T}
     problem::P
     base::S
+    gradient_scale::T   # max(‖A'b‖₂, 1), fixed for the life of the solver
 end
 
 function ConstrainedFISTASolver(problem::ConstrainedLassoProblem;
@@ -135,82 +142,65 @@ function ConstrainedFISTASolver(problem::ConstrainedLassoProblem;
     base = FISTASolver(LassoProblem(problem.A, problem.b;
                                     constraint=problem.constraint);
                        step, stop, x0, power_iterations, power_safety)
-    return ConstrainedFISTASolver(problem, base)
+    scale = max(norm(adjoint(problem.A) * problem.b), 1)
+    return ConstrainedFISTASolver(problem, base, scale)
 end
 
-function solve!(solver::ConstrainedFISTASolver; warm_start=true)
+# The constrained problem has no penalty; `nothing` stands in for lambda.
+solve!(solver::ConstrainedFISTASolver; warm_start=true) =
+    _fista_solve!(solver, nothing; warm_start)
+
+_fista_workspace(solver::ConstrainedFISTASolver) = solver.base
+
+function _fista_gradient!(solver::ConstrainedFISTASolver, y)
     p, base = solver.problem, solver.base
-    x, y, previous = base.x, base.y, base.previous
-    !warm_start && fill!(x, zero(eltype(x)))
-    copyto!(y, x)
-    tolerance = base.stop isa DualGapStop ?
-                _dual_gap_tolerance(p.b, base.stop) :
-                _constrained_tolerance(p, base.stop)
-    scale = max(norm(adjoint(p.A) * p.b), 1)
-    if base.stop isa KKTStop
-        mapping = constrained_optimality_residual(p, x; step=base.step)
-        if mapping <= tolerance
-            return _constrained_result(p, x, true, :optimality, 0,
-                                       (step=base.step,); step=base.step)
-        end
-    end
-    momentum_t = one(base.step)
-    for iteration in 1:base.stop.maxiter
-        copyto!(previous, x)
-        mul!(base.residual, p.A, y)
-        @. base.residual = base.residual - p.b
-        mul!(base.gradient, adjoint(p.A), base.residual)
-        @. base.prox_input = y - base.step * base.gradient
-        _project_l1_ball!(x, base.prox_input, p.radius,
-                          p.constraint == :nonnegative)
-        if iteration % base.stop.check_every == 0 ||
-           iteration == base.stop.maxiter
-            if base.stop isa KKTStop
-                mapping = constrained_optimality_residual(p, x; step=base.step)
-                if mapping <= tolerance
-                    return _constrained_result(p, x, true, :optimality,
-                                               iteration, (step=base.step,);
-                                               step=base.step)
-                end
-            elseif base.stop isa DualGapStop
-                change = norm(x - previous, Inf)
-                if change <= base.stop.tol * norm(x, Inf)
-                    gap = constrained_dual_gap(p, x)
-                    if gap <= tolerance
-                        return _constrained_result(p, x, true, :dual_gap,
-                                                   iteration,
-                                                   (step=base.step,
-                                                    iterate_change=change,
-                                                    dual_gap=gap);
-                                                   step=base.step)
-                    end
-                end
-            else
-                @. base.prox_input = (y - x) / base.step
-                mapping = norm(base.prox_input)
-                if mapping <= tolerance
-                    result = _constrained_result(p, x, true, :gradient_mapping,
-                                                 iteration,
-                                                 (step=base.step,
-                                                  gradient_mapping_residual=mapping,
-                                                  gradient_mapping_scale=scale);
-                                                 step=base.step)
-                    _warn_fista_optimality(result.optimality_residual / scale,
-                                           base.stop, :projected_gradient_over_scale)
-                    return result
-                end
-            end
-        end
-        next_t = (one(momentum_t) + sqrt(one(momentum_t) + 4momentum_t^2)) / 2
-        momentum = (momentum_t - one(momentum_t)) / next_t
-        @. y = x + momentum * (x - previous)
-        momentum_t = next_t
-    end
-    result = _constrained_result(p, x, false, :maxiter, base.stop.maxiter,
-                                 (step=base.step,); step=base.step)
-    base.stop isa GradientMappingStop &&
-        _warn_fista_optimality(result.optimality_residual / scale,
+    mul!(base.residual, p.A, y)
+    @. base.residual = base.residual - p.b
+    mul!(base.gradient, adjoint(p.A), base.residual)
+    return nothing
+end
+
+_fista_prox!(solver::ConstrainedFISTASolver, step, lambda) =
+    _project_l1_ball!(solver.base.x, solver.base.prox_input,
+                      solver.problem.radius,
+                      solver.problem.constraint == :nonnegative)
+
+_fista_kkt_reason(solver::ConstrainedFISTASolver) = :optimality
+
+_fista_kkt_passed(solver::ConstrainedFISTASolver, lambda, stop::KKTStop) =
+    constrained_optimality_residual(solver.problem, solver.base.x;
+                                    step=solver.base.step) <=
+    stop.atol + stop.rtol * solver.gradient_scale
+
+_fista_gap_degenerate(solver::ConstrainedFISTASolver, lambda) = false
+
+_fista_gap(solver::ConstrainedFISTASolver, lambda) =
+    constrained_dual_gap(solver.problem, solver.base.x)
+
+_fista_gap_tolerance(solver::ConstrainedFISTASolver, stop) =
+    _dual_gap_tolerance(solver.problem.b, stop)
+
+# The constrained mapping test uses the 2-norm and a fixed scale.
+function _fista_check(solver::ConstrainedFISTASolver, lambda,
+                      stop::GradientMappingStop, step)
+    base = solver.base
+    @. base.prox_input = (base.y - base.x) / step
+    mapping = norm(base.prox_input)
+    mapping <= stop.atol + stop.rtol * solver.gradient_scale || return nothing
+    return (reason=:gradient_mapping,
+            diagnostics=(gradient_mapping_residual=mapping,
+                         gradient_mapping_scale=solver.gradient_scale))
+end
+
+function _fista_result(solver::ConstrainedFISTASolver, lambda, converged,
+                       reason, iterations, diagnostics)
+    base = solver.base
+    result = _constrained_result(solver.problem, base.x, converged, reason,
+                                 iterations, diagnostics; step=base.step)
+    if base.stop isa GradientMappingStop && reason != :optimality
+        _warn_fista_optimality(result.optimality_residual / solver.gradient_scale,
                                base.stop, :projected_gradient_over_scale)
+    end
     return result
 end
 
@@ -232,7 +222,7 @@ function ConstrainedADMMSolver(problem::ConstrainedLassoProblem;
     base = ADMMSolver(LassoProblem(problem.A, problem.b;
                                    constraint=problem.constraint);
                       rho, stop, x0, feasibility_atol, feasibility_rtol)
-    t = inv(max(opnorm(problem.A)^2, 1))
+    t = inv(max(_squared_norm_bound(problem.A, problem.b), 1))
     return ConstrainedADMMSolver(problem, base, t)
 end
 

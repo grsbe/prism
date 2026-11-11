@@ -120,7 +120,9 @@ function TVPDHGSolver(problem::TVProblem; step=:auto, stop=KKTStop(),
     problem.constraint == :nonnegative && minimum(x) < 0 &&
         throw(ArgumentError("x0 must be nonnegative"))
     # ‖[A; ∇]‖² ≤ ‖A‖² + 8 on a nearest-neighbor 2D grid.
-    t = if step === :auto || step === :exact
+    t = if step === :auto
+        T(0.99 / sqrt(_squared_norm_bound(problem.A, problem.b) + 8))
+    elseif step === :exact
         T(0.99 / sqrt(opnorm(problem.A)^2 + 8))
     elseif step === :frobenius
         T(0.99 / sqrt(sum(abs2, problem.A) + 8))
@@ -186,7 +188,12 @@ end
 
 function _tv_converged(solver, lambda, conditions)
     stop, p = solver.stop, solver.problem
-    stationarity_tol = stop.atol + stop.rtol * lambda
+    # At lambda == 0 the L1 scale vanishes; use the TV weight (or, with no
+    # regularizer at all, the data gradient at zero) as the gradient scale.
+    stationarity_scale = !iszero(lambda) ? lambda :
+                         !iszero(p.tv_weight) ? p.tv_weight :
+                         max(norm(adjoint(p.A) * p.b, Inf), 1)
+    stationarity_tol = stop.atol + stop.rtol * stationarity_scale
     data_tol = stop.atol + stop.rtol * max(norm(p.b, Inf), 1)
     gap_tol = stop.atol * max(norm(solver.x, 1), 1) +
               stop.rtol * max(p.tv_weight * conditions.tv, 1)

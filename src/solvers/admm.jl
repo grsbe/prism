@@ -84,7 +84,8 @@ function _admm_optimality(problem, z, lambda, stop)
                (dual_gap=gap,)
     end
     kkt = lasso_kkt_residual(problem, z, lambda)
-    tolerance = stop isa DualGapStop ? KKTStop().atol :
+    tolerance = stop isa DualGapStop ?
+                stop.tol * norm(adjoint(problem.A) * problem.b, Inf) :
                 _kkt_tolerance(stop, lambda)
     reason = stop isa DualGapStop ? :kkt_zero_penalty : :kkt
     return kkt <= tolerance, reason, (kkt_residual=kkt,)

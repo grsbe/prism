@@ -24,6 +24,7 @@ src/
   workflows/cross_validation.jl ordered-group LASSO cross-validation
   api.jl                   new problem → method → result interface
   compatibility_api.jl     selected old SRT names
+  sampling/gibbs_posterior.jl Gibbs posterior sampler for signed/nonnegative LASSO
 ```
 
 ## Where the remaining SRT methods will go
@@ -45,8 +46,10 @@ diagnostics may differ.
 
 Ordered-group cross-validation for ordinary LASSO is implemented in
 `workflows/`;
-uncertainty/resampling and other hyperparameter workflows are not. These
-workflows do not belong inside the solvers. GPU FISTA is a first-class
+resampling and other hyperparameter workflows are not. These
+workflows do not belong inside the solvers. Posterior sampling at one fixed
+λ lives in `sampling/`; it reuses the problem and result types but none of
+the solver loops. GPU FISTA is a first-class
 implementation of the same
 penalized-LASSO problem; CUDA remains optional. Real-device Float32/Float64
 parity passed on Blackwell. An optional fixed-iteration benchmark exists, but

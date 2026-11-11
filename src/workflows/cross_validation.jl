@@ -51,7 +51,8 @@ _cv_rmse(prediction, observed, _) =
     cross_validate(problem::LassoProblem, method; fold_ids,
                    lambda_ratios=..., score=_cv_rmse)
 
-Grouped K-fold CV for a signed or nonnegative LASSO. The caller supplies fold
+Grouped K-fold CV for a signed or nonnegative LASSO with the L1 penalty
+(the Huber penalty is rejected). The caller supplies fold
 IDs (or obtains them from `ordered_group_folds`); Prism never randomly
 splits observations. For each training fold, compute its own zero-solution
 `lambda_max`, then solve the *same descending lambda/lambda_max ratios* with
@@ -73,6 +74,8 @@ function cross_validate(problem::LassoProblem, method::Union{FISTA,ADMM};
                                                 log(DEFAULT_LASSO_PATH_MIN_RATIO);
                                                 length=DEFAULT_LASSO_PATH_POINTS)),
                         score=_cv_rmse)
+    problem.penalty isa L1 ||
+        throw(ArgumentError("cross_validate needs the L1 penalty: its lambda ratios are relative to each fold's zero-solution lambda_max, which the Huber penalty does not have"))
     ids, n_folds = _validated_cv_folds(fold_ids, length(problem.b))
     ratios = collect(lambda_ratios)
     isempty(ratios) && throw(ArgumentError("lambda_ratios must be nonempty"))

@@ -210,6 +210,107 @@ the absolute components. PDHG uses a dual variable for the
 nonsmooth TV term rather than squaring it. TV tends to preserve
 edges while discouraging isolated local jumps.
 
+## Posterior sampling at one λ
+
+`sample_posterior` treats the penalized LASSO objective as a negative
+log-density. With noise variance $\sigma^2$ per entry of $b$,
+
+$$
+\pi(x)=p(x\mid b)\;\propto\;
+\exp\!\Bigl(-\frac{F_\lambda(x)}{\sigma^2}\Bigr)
+=\underbrace{\exp\!\Bigl(-\frac{\|Ax-b\|_2^2}{2\sigma^2}\Bigr)}_{\text{Gaussian likelihood}}
+\;\underbrace{\prod_{j}\exp\!\Bigl(-\frac{\lambda}{\sigma^2}|x_j|\Bigr)}_{\text{Laplace prior}},
+$$
+
+on $\mathbb R^n$, or on $\mathbb R_+^n$ for nonnegative coefficients, where
+the prior becomes exponential with mean $\sigma^2/\lambda$. The mode of $\pi$
+is the minimizer of $F_\lambda$, the LASSO solution, for every $\sigma^2$;
+$\sigma^2$ only scales the width. Everything is conditional on $\lambda$ and
+$\sigma^2$; neither is estimated.
+
+**One-coefficient conditional.** Fix all coefficients except $x_i$, let
+$a_i$ be column $i$ of $A$, $d_i=\|a_i\|_2^2$, and $r=b-Ax$ the current
+residual. As a function of a new value $t$ for $x_i$,
+
+$$
+\tfrac12\|r-a_i(t-x_i)\|_2^2=\tfrac{d_i}{2}(t-c_i)^2+\text{const},
+\qquad c_i=x_i+\frac{a_i^\top r}{d_i},
+$$
+
+so with $s_i^2=\sigma^2/d_i$ and $\tau_i=\lambda/d_i$ the conditional density
+is
+
+$$
+\pi(t\mid x_{-i})\;\propto\;
+\exp\!\Bigl(-\frac{(t-c_i)^2}{2s_i^2}-\frac{\tau_i|t|}{s_i^2}\Bigr).
+$$
+
+Completing the square separately for $t\ge0$ and $t\le0$ gives
+
+$$
+\pi(t\mid x_{-i})\;\propto\;
+\begin{cases}
+e^{-\lambda c_i/\sigma^2}\;\mathcal N(t;\,c_i-\tau_i,\,s_i^2), & t\ge0,\\[2pt]
+e^{+\lambda c_i/\sigma^2}\;\mathcal N(t;\,c_i+\tau_i,\,s_i^2), & t\le0.
+\end{cases}
+$$
+
+- *Nonnegative coefficients:* only the first branch exists, so
+  $x_i\mid x_{-i}$ is $\mathcal N(c_i-\tau_i,s_i^2)$ truncated to $t\ge0$.
+  Its untruncated mean $c_i-\tau_i$ is the argument of the coordinate-descent
+  LASSO update $\max(c_i-\tau_i,0)$.
+- *Signed coefficients:* a mixture of the two truncated normals. With $\Phi$
+  the standard normal distribution function, the positive branch is chosen
+  with probability $w_+/(w_++w_-)$,
+
+$$
+w_+=e^{-\lambda c_i/\sigma^2}\,\Phi\!\Bigl(\frac{c_i-\tau_i}{s_i}\Bigr),
+\qquad
+w_-=e^{+\lambda c_i/\sigma^2}\,\Phi\!\Bigl(-\frac{c_i+\tau_i}{s_i}\Bigr).
+$$
+
+  The weights are evaluated as logarithms with $\log\Phi(u)=
+  \log\operatorname{erfc}(-u/\sqrt2)-\log2$, which stays finite far in the
+  tails where $\Phi$ underflows; this is the only use of `SpecialFunctions`.
+- *Zero column* ($d_i=0$): the data do not constrain $x_i$, and it is drawn
+  from the prior, an exponential with mean $\sigma^2/\lambda$ (with a random
+  sign when signed).
+
+**Gibbs sampler.** One sweep draws $x_1,\dots,x_n$ in order, each from its
+conditional given the current values of the others. Every such update leaves
+$\pi$ invariant, so the sweep does, and the chain converges to $\pi$ from any
+start. There is no proposal, step size, or rejection. Truncated normals are
+drawn exactly: by rejection from the untruncated normal when at least half
+its mass is allowed, and otherwise by Robert's (1995) shifted-exponential
+rejection, which stays efficient arbitrarily far in the tail.
+
+The sweep needs $a_i^\top r$ for every $i$. For sparse $A$, and for dense $A$
+with $m\le n$, the residual $r$ is stored and updated by
+$r\leftarrow r-(t-x_i)a_i$ after each coefficient: $O(\operatorname{nnz}(A))$
+per sweep. For dense $A$ with $m>n$, $K=A^\top A$ is formed once and
+$A^\top r$ is stored and updated by column $i$ of $K$: $O(n^2)$ per sweep. The
+stored vector is recomputed from scratch every 100 sweeps to remove
+accumulated rounding.
+
+**Diagnostics.** Draws within a chain are autocorrelated. For each coefficient
+Prism reports the split $\hat R$ (each chain is halved; $\hat R$ compares the
+between-half variance of the means with the within-half variance and is near
+1 when all halves sample the same distribution) and the effective sample size
+$N_{\rm eff}=MN/\hat\tau$, where $\hat\tau=-1+2\sum_k(\hat\rho_{2k}+
+\hat\rho_{2k+1})$ sums the estimated autocorrelations in pairs until a pair
+is no longer positive (Geyer's initial positive sequence).
+
+**Why coordinate-wise.** An alternative writes the Laplace prior as a normal
+with exponentially distributed variance, integrates $x$ out, and runs a
+gradient-based chain (MALA) on the $n$ log-variances. Each step then factors
+a dense $\min(m,n)$-sized matrix, and the construction has no nonnegative
+counterpart. On a test with $m=1500$, $n=6000$ that chain cost 0.13 s per
+step and produced 0.008 effective draws per second for its worst coefficient,
+against 5.8 for the Gibbs sampler, with matching posterior means. The price
+of coordinate updates is slow joint movement of coefficients with strongly
+overlapping columns; see [posterior sampling](posterior_sampling.md) for
+measured costs and how to read the diagnostics.
+
 ## Preparing scientific data
 
 For observations $y$, estimated background $c$, prior field $x_0$,

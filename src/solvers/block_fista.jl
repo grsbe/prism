@@ -159,6 +159,13 @@ Base.size(D::BlockDesign, i::Integer) = i == 1 ? size(D.A, 1) :
     i == 2 ? size(D.A, 2) + size(D.B, 2) : 1
 LinearAlgebra.norm(D::BlockDesign) = sqrt(sum(abs2, D.A) + sum(abs2, D.B))
 
+# BlockDesign has no getindex, so the generic matrix display would throw.
+function Base.show(io::IO, D::BlockDesign)
+    print(io, size(D, 1), "×", size(D, 2), " BlockDesign{", eltype(D),
+          "} [A B] with ", size(D.A, 2), " + ", size(D.B, 2), " columns")
+end
+Base.show(io::IO, ::MIME"text/plain", D::BlockDesign) = show(io, D)
+
 function LinearAlgebra.mul!(out::AbstractVector, D::BlockDesign,
                             coefficients::AbstractVector)
     nx = size(D.A, 2)
@@ -244,99 +251,69 @@ end
 
 function solve!(solver::BlockFISTASolver, lambda; warm_start=true)
     _validate_lambda(lambda)
-    p, base, nx, ridge, t = solver.problem, solver.base, solver.nx,
-                             solver.ridge, solver.step
-    x, y, previous = base.x, base.y, base.previous
-    !warm_start && fill!(x, zero(eltype(x)))
-    copyto!(y, x)
-    if base.stop isa KKTStop
-        kkt = block_kkt_residual(p, view(x, 1:nx),
-                                 view(x, nx+1:length(x)), lambda, ridge)
-        if kkt <= _kkt_tolerance(base.stop, lambda)
-            return _block_result(p, x, nx, lambda, ridge, true, :kkt, 0,
-                                 (step=t,))
-        end
-    end
-    momentum_t = one(t)
-    for iteration in 1:base.stop.maxiter
-        copyto!(previous, x)
-        mul!(base.residual, base.problem.A, y)
-        @. base.residual = base.residual - p.b
-        _loss_derivative!(p.loss, base.residual)
-        mul!(base.gradient, adjoint(base.problem.A), base.residual)
-        @views base.gradient[nx+1:end] .+= ridge .* y[nx+1:end]
-        @. base.prox_input = y - t * base.gradient
-        @views begin
-            sparse_input = base.prox_input[1:nx]
-            smooth_input = base.prox_input[nx+1:end]
-            sparse_output = x[1:nx]
-            smooth_output = x[nx+1:end]
-            _penalty_prox!(p.penalty, sparse_output, sparse_input,
-                           t * lambda, p.x_constraint)
-            if p.z_constraint == :nonnegative
-                @. smooth_output = max(smooth_input, 0)
-            else
-                copyto!(smooth_output, smooth_input)
-            end
-        end
-        if iteration % base.stop.check_every == 0 ||
-           iteration == base.stop.maxiter
-            if base.stop isa KKTStop
-                kkt = block_kkt_residual(p, view(x, 1:nx),
-                                         view(x, nx+1:length(x)), lambda, ridge)
-                if kkt <= _kkt_tolerance(base.stop, lambda)
-                    return _block_result(p, x, nx, lambda, ridge, true, :kkt,
-                                         iteration, (step=t,))
-                end
-            elseif base.stop isa DualGapStop
-                change = norm(x - previous, Inf)
-                if change <= base.stop.tol * norm(x, Inf)
-                    if iszero(lambda) || iszero(ridge)
-                        kkt = block_kkt_residual(p, view(x, 1:nx),
-                                                 view(x, nx+1:length(x)),
-                                                 lambda, ridge)
-                        scale = max(norm(_loss_correlations(p.A, p.b, p.loss), Inf),
-                                    norm(_loss_correlations(p.B, p.b, p.loss), Inf), 1)
-                        if kkt <= base.stop.tol * scale
-                            return _block_result(p, x, nx, lambda, ridge,
-                                                 true, :kkt_dual_degenerate,
-                                                 iteration,
-                                                 (step=t, iterate_change=change))
-                        end
-                    else
-                        gap = block_dual_gap(p, view(x, 1:nx),
-                                             view(x, nx+1:length(x)),
-                                             lambda, ridge)
-                        if gap <= _dual_gap_tolerance(p.b, p.loss, base.stop)
-                            return _block_result(p, x, nx, lambda, ridge,
-                                                 true, :dual_gap, iteration,
-                                                 (step=t, iterate_change=change,
-                                                  dual_gap=gap))
-                        end
-                    end
-                end
-            else
-                @. base.prox_input = (y - x) / t
-                mapping = norm(base.prox_input, Inf)
-                scale = max(norm(base.gradient, Inf), eps(float(t)))
-                if mapping <= base.stop.atol + base.stop.rtol * scale
-                    result = _block_result(p, x, nx, lambda, ridge, true,
-                                           :gradient_mapping, iteration,
-                                           (step=t, gradient_mapping_residual=mapping,
-                                            gradient_mapping_scale=scale))
-                    return result
-                end
-            end
-        end
-        next_t = (one(momentum_t) + sqrt(one(momentum_t) + 4momentum_t^2)) / 2
-        momentum = (momentum_t - one(momentum_t)) / next_t
-        @. y = x + momentum * (x - previous)
-        momentum_t = next_t
-    end
-    result = _block_result(p, x, nx, lambda, ridge, false, :maxiter,
-                           base.stop.maxiter, (step=t,))
-    return result
+    return _fista_solve!(solver, lambda; warm_start)
 end
+
+_fista_workspace(solver::BlockFISTASolver) = solver.base
+_fista_step(solver::BlockFISTASolver) = solver.step
+_block_sparse(solver::BlockFISTASolver) = view(solver.base.x, 1:solver.nx)
+_block_smooth(solver::BlockFISTASolver) =
+    view(solver.base.x, solver.nx+1:length(solver.base.x))
+
+function _fista_gradient!(solver::BlockFISTASolver, y)
+    p, base, nx = solver.problem, solver.base, solver.nx
+    mul!(base.residual, base.problem.A, y)
+    @. base.residual = base.residual - p.b
+    _loss_derivative!(p.loss, base.residual)
+    mul!(base.gradient, adjoint(base.problem.A), base.residual)
+    @views base.gradient[nx+1:end] .+= solver.ridge .* y[nx+1:end]
+    return nothing
+end
+
+function _fista_prox!(solver::BlockFISTASolver, step, lambda)
+    p, base, nx = solver.problem, solver.base, solver.nx
+    @views begin
+        sparse_input = base.prox_input[1:nx]
+        smooth_input = base.prox_input[nx+1:end]
+        sparse_output = base.x[1:nx]
+        smooth_output = base.x[nx+1:end]
+        _penalty_prox!(p.penalty, sparse_output, sparse_input,
+                       step * lambda, p.x_constraint)
+        if p.z_constraint == :nonnegative
+            @. smooth_output = max(smooth_input, 0)
+        else
+            copyto!(smooth_output, smooth_input)
+        end
+    end
+    return nothing
+end
+
+_fista_kkt(solver::BlockFISTASolver, lambda) =
+    block_kkt_residual(solver.problem, _block_sparse(solver),
+                       _block_smooth(solver), lambda, solver.ridge)
+
+# The dual certificate needs both penalties to be positive.
+_fista_gap_degenerate(solver::BlockFISTASolver, lambda) =
+    iszero(lambda) || iszero(solver.ridge)
+_fista_degenerate_reason(solver::BlockFISTASolver) = :kkt_dual_degenerate
+
+function _fista_kkt_scale(solver::BlockFISTASolver)
+    p = solver.problem
+    return max(norm(_loss_correlations(p.A, p.b, p.loss), Inf),
+               norm(_loss_correlations(p.B, p.b, p.loss), Inf), 1)
+end
+
+_fista_gap(solver::BlockFISTASolver, lambda) =
+    block_dual_gap(solver.problem, _block_sparse(solver),
+                   _block_smooth(solver), lambda, solver.ridge)
+
+_fista_gap_tolerance(solver::BlockFISTASolver, stop) =
+    _dual_gap_tolerance(solver.problem.b, solver.problem.loss, stop)
+
+_fista_result(solver::BlockFISTASolver, lambda, converged, reason, iterations,
+              diagnostics) =
+    _block_result(solver.problem, solver.base.x, solver.nx, lambda,
+                  solver.ridge, converged, reason, iterations, diagnostics)
 
 initialize(problem::BlockLassoRidgeProblem, method::FISTA, ridge;
            x0=nothing, z0=nothing) =
