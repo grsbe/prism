@@ -115,10 +115,18 @@ function group_lasso_dual_gap(problem::GroupLassoProblem, x, lambda)
     problem.constraint == :nonnegative && minimum(x) < 0 &&
         throw(ArgumentError("x must be nonnegative"))
     r = problem.A * x - problem.b
+    return _group_gap_from_residual!(problem, x, lambda, r,
+                                     similar(r, size(problem.A, 2)))
+end
+
+# Gap given `r = Ax - b`; overwrites `r` and `gradient`. FISTA passes its
+# workspace, so the residual and gradient are not allocated per check.
+function _group_gap_from_residual!(problem::GroupLassoProblem, x, lambda, r,
+                                   gradient)
     primal = _loss_value(problem.loss, r) + lambda * _group_penalty(problem, x)
     iszero(lambda) && return primal # The solver uses KKT instead at λ=0.
     u = _loss_derivative!(problem.loss, r)
-    gradient = adjoint(problem.A) * u
+    mul!(gradient, adjoint(problem.A), u)
     scale = one(float(lambda))
     for (idx, w) in zip(problem.indices, problem.weights)
         gv = view(gradient, idx)
@@ -228,8 +236,13 @@ _fista_kkt_scale(solver::GroupFISTASolver) =
     max(norm(_loss_correlations(solver.problem.A, solver.problem.b,
                                 solver.problem.loss), Inf), 1)
 
-_fista_gap(solver::GroupFISTASolver, lambda) =
-    group_lasso_dual_gap(solver.problem, solver.base.x, lambda)
+function _fista_gap(solver::GroupFISTASolver, lambda)
+    problem, base = solver.problem, solver.base
+    mul!(base.residual, problem.A, base.x)
+    @. base.residual = base.residual - problem.b
+    return _group_gap_from_residual!(problem, base.x, lambda, base.residual,
+                                     base.gradient)
+end
 
 _fista_gap_tolerance(solver::GroupFISTASolver, stop) =
     _dual_gap_tolerance(solver.problem.b, solver.problem.loss, stop)

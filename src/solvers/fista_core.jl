@@ -12,6 +12,9 @@
 #                                      `prox_input` into workspace `x`
 #   _fista_kkt(solver, lambda)         optimality residual at workspace `x`
 #   _fista_gap(solver, lambda)         primal-dual gap at workspace `x`
+#                                      (both may overwrite the workspace
+#                                      `residual`, `gradient` and `prox_input`,
+#                                      which are recomputed in each iteration)
 #   _fista_result(solver, lambda, converged, reason, iterations, diagnostics)
 #
 # Optional hooks (defaults below): _fista_step, _fista_kkt_reason,
@@ -36,9 +39,14 @@ function _fista_check(solver, lambda, stop::KKTStop, step)
     return (reason=_fista_kkt_reason(solver), diagnostics=(;))
 end
 
-function _fista_check(solver, lambda, stop::DualGapStop, step)
+# `gap_tolerance` depends only on the data, so `_fista_solve!` computes it once
+# per solve instead of once per check. The iterate change is formed in
+# `prox_input`, which is free after the prox step: no array is allocated here.
+function _fista_check(solver, lambda, stop::DualGapStop, step,
+                      gap_tolerance=_fista_gap_tolerance(solver, stop))
     ws = _fista_workspace(solver)
-    change = norm(ws.x - ws.previous, Inf)
+    @. ws.prox_input = ws.x - ws.previous
+    change = norm(ws.prox_input, Inf)
     change <= stop.tol * norm(ws.x, Inf) || return nothing
     if _fista_gap_degenerate(solver, lambda)
         kkt = _fista_kkt(solver, lambda)
@@ -47,7 +55,7 @@ function _fista_check(solver, lambda, stop::DualGapStop, step)
                 diagnostics=(iterate_change=change,))
     end
     gap = _fista_gap(solver, lambda)
-    gap <= _fista_gap_tolerance(solver, stop) || return nothing
+    gap <= gap_tolerance || return nothing
     return (reason=:dual_gap, diagnostics=(iterate_change=change, dual_gap=gap))
 end
 
@@ -74,6 +82,8 @@ function _fista_solve!(solver, lambda; warm_start=true)
         return _fista_result(solver, lambda, true, _fista_kkt_reason(solver),
                              0, (step=step,))
     end
+    gap_tolerance = stop isa DualGapStop ?
+                    _fista_gap_tolerance(solver, stop) : nothing
     t = one(step)
     for iteration in 1:stop.maxiter
         copyto!(previous, x)
@@ -81,7 +91,9 @@ function _fista_solve!(solver, lambda; warm_start=true)
         @. ws.prox_input = y - step * ws.gradient
         _fista_prox!(solver, step, lambda)
         if iteration % stop.check_every == 0 || iteration == stop.maxiter
-            outcome = _fista_check(solver, lambda, stop, step)
+            outcome = stop isa DualGapStop ?
+                      _fista_check(solver, lambda, stop, step, gap_tolerance) :
+                      _fista_check(solver, lambda, stop, step)
             if !isnothing(outcome)
                 return _fista_result(solver, lambda, true, outcome.reason,
                                      iteration,

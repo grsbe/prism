@@ -95,6 +95,14 @@ the CPU or checking diagnostics too frequently can synchronize
 the device and erode the speedup. The final KKT check also contains
 reductions and may synchronize.
 
+The stopping checks run in the solver workspace and allocate no device
+arrays, so device memory stays flat over long warm-started sweeps. Each check
+still blocks on its reductions, and once the iterate-change gate passes, a
+`DualGapStop` check costs about as much as one iteration (two matrix-vector
+products). On a GPU, `DualGapStop(check_every=10)` roughly halves the time per
+iteration compared with the default `check_every=1`, at the cost of at most
+nine extra iterations per solve.
+
 `solve_path!` keeps the same GPU-resident solver, matrix, observations, and
 workspaces throughout the path; it does not transfer $A$ at each lambda.
 With `store=true`, every path point retains its own GPU coefficient snapshot,
@@ -103,11 +111,51 @@ receives one owned result snapshot per point, but Prism does not retain it
 after the callback. Transfer or persist only the points you need.
 
 Block LASSO–ridge FISTA also supports GPU dense and CSR inputs, with the
-L1 and ridge blocks independently signed or nonnegative. The block operator
-keeps both matrices and all workspaces on the device, including across a
-warm-started path. It avoids materializing a combined GPU matrix, saving
-matrix storage at the cost of two matrix-vector products and a few extra
-device kernels per iteration. Benchmark for the actual matrix dimensions.
+L1 and ridge blocks independently signed or nonnegative. Both matrices and
+all workspaces stay on the device, including across a warm-started path.
+How the combined design $[A\ B]$ is applied depends on the storage:
+
+- **CPU dense designs** are materialized: each solver builds its own copy of
+  $[A\ B]$ and uses one matrix-vector product per multiplication.
+- **All other designs (CPU sparse, GPU dense, GPU CSR)** use a matrix-free
+  block operator. It stores no copy of the design, at the cost of two
+  matrix-vector products and a few extra device kernels per iteration. For a
+  dense GPU design this costs about 5–7 % per iteration at 8100 × 2600 and
+  under 1 % at 30000 × 9000 (RTX 6000 Ada, Float64), and in exchange a
+  solver holds no second design on the device.
+
+Benchmark for the actual matrix dimensions.
+
+### Freeing device memory in long sweeps
+
+Julia's garbage collector sees only the small host-side handle of a device
+array. A dropped solver, result or design can therefore hold device memory for a
+long time without prompting a collection. Prism's solvers keep this small:
+the iterations and stopping checks allocate no device arrays, and a GPU block
+solver holds only vector workspaces. What remains is what the caller drops,
+such as stored path results or designs for earlier datasets.
+
+`release_memory` collects and then returns pooled device memory. In a
+long-lived process, call it after dropping a solver, its results or a design,
+passing the device library's pool release:
+
+```julia
+for ridge in ridges
+    solver = initialize(problem, FISTA(), ridge)
+    path = solve_path!(solver, lambdas)
+    # ... save what you need from `path` ...
+    solver = path = nothing
+    release_memory(CUDA.reclaim)
+end
+```
+
+`release_memory_callback(CUDA.reclaim; every=10)` is the same thing as an
+`on_result` callback for `solve_path!`. It frees snapshots of earlier path
+points during a path, but it cannot free what the live solver holds. Both are
+optional: use them when
+device memory (`nvidia-smi`, `CUDA.pool_status()`) or the time per iteration
+grows over a sweep. A collection takes time, so do not run one after every
+quick path point without measuring.
 
 Group-LASSO CUDA FISTA supports dense and CSR designs and noncontiguous
 partitions without scalar indexing. Its current group proximal step loops

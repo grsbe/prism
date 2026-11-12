@@ -67,11 +67,26 @@ function lasso_dual_gap(problem::LassoProblem, x::AbstractVector, lambda)
     problem.constraint == :nonnegative && minimum(x) < 0 &&
         throw(ArgumentError("x violates nonnegativity"))
     residual = problem.A * x - problem.b
+    return _lasso_gap_from_residual!(problem, x, lambda, residual,
+                                     similar(residual, size(problem.A, 2)))
+end
+
+# Unvalidated gap using caller-owned buffers; `residual` and `gradient` are
+# overwritten. FISTA passes its workspace, so a gap check allocates no array.
+function _lasso_dual_gap!(problem::LassoProblem, x, lambda, residual, gradient)
+    mul!(residual, problem.A, x)
+    @. residual = residual - problem.b
+    return _lasso_gap_from_residual!(problem, x, lambda, residual, gradient)
+end
+
+# Gap given `residual = Ax - b`; overwrites `residual` and `gradient`.
+function _lasso_gap_from_residual!(problem::LassoProblem, x, lambda, residual,
+                                   gradient)
     primal = _loss_value(problem.loss, residual) +
              lambda * _penalty_value(problem.penalty, x)
     iszero(lambda) && return primal
     u = _loss_derivative!(problem.loss, residual)
-    gradient = adjoint(problem.A) * u
+    mul!(gradient, adjoint(problem.A), u)
     scale, penalty_dual = _penalty_dual(problem.penalty, gradient, lambda,
                                         problem.constraint)
     gap = primal + (_loss_conjugate(problem.loss, u) + penalty_dual) / scale^2 +

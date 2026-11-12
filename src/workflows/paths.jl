@@ -86,3 +86,62 @@ function solve_path!(solver::Union{FISTASolver,GroupFISTASolver,ADMMSolver};
     values = lambda_grid(solver; min_ratio, n_lambdas)
     return solve_path!(solver, values; kwargs...)
 end
+
+"""
+    release_memory(reclaim=nothing; full=true)
+
+Free memory held by objects that are no longer referenced. It runs Julia's
+garbage collector (`full=false` for a quick, incremental collection) and then
+calls `reclaim()` if one is given.
+
+This matters on a GPU. Julia's collector sees only the small host-side handle
+of a device array, so dropped solvers, results and designs can hold device
+memory without ever prompting a collection. If device memory grows in a
+long-lived process, call this after dropping them and pass the device
+library's pool release, for example with CUDA.jl:
+
+```julia
+for ridge in ridges
+    solver = initialize(problem, FISTA(), ridge)
+    path = solve_path!(solver, lambdas)
+    # ... save what you need from `path` ...
+    solver = path = nothing
+    release_memory(CUDA.reclaim)
+end
+```
+
+Prism has no CUDA dependency, hence the explicit `reclaim` argument. On the
+CPU the call is unnecessary.
+"""
+function release_memory(reclaim=nothing; full::Bool=true)
+    GC.gc(full)
+    isnothing(reclaim) || reclaim()
+    return nothing
+end
+
+"""
+    release_memory_callback(reclaim=nothing; every=1, full=false)
+
+An `on_result` callback for `solve_path!` that calls
+[`release_memory`](@ref) after every `every`-th path point:
+
+```julia
+solve_path!(solver, lambdas; store=false,
+            on_result=release_memory_callback(CUDA.reclaim))
+```
+
+It frees the snapshots of earlier path points (with `store=false`). It cannot
+free anything the solver itself still holds; for that, call `release_memory`
+after the solver is dropped. A collection takes time, so prefer a larger
+`every` or the per-solver call when the path points are quick.
+"""
+function release_memory_callback(reclaim=nothing; every::Integer=1,
+                                 full::Bool=false)
+    every > 0 || throw(ArgumentError("every must be a positive integer"))
+    return (index, result) -> begin
+        index % every == 0 && release_memory(reclaim; full)
+        return nothing
+    end
+end
+
+export release_memory, release_memory_callback

@@ -68,16 +68,19 @@ L1: `‖g‖∞ ≤ λ` (or `-g ≤ λ`), conjugate zero. Huber: the conjugate o
 """
 function _penalty_dual(::L1, g, lambda, constraint)
     bound = constraint == :signed ? maximum(abs, g) :
-            max(zero(lambda), maximum(-g))
+            max(zero(lambda), -minimum(g))
     return max(one(float(lambda)), bound / lambda), zero(float(lambda))
 end
+
+# `∑ min(gⱼ, 0)²` as one reduction, without a temporary array.
+_negative_part_energy(g) = sum(v -> abs2(min(v, zero(v))), g)
 
 function _penalty_dual(p::Huber, g, lambda, constraint)
     if constraint == :signed
         bound, energy = maximum(abs, g), sum(abs2, g)
     else
-        bound = max(zero(lambda), maximum(-g))
-        energy = sum(abs2, min.(g, zero(eltype(g))))
+        bound = max(zero(lambda), -minimum(g))
+        energy = _negative_part_energy(g)
     end
     scale = max(one(float(lambda)), bound / (lambda * p.delta))
     return scale, energy / (2 * lambda)

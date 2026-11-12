@@ -194,6 +194,11 @@ each point. `store=true` retains a separate coefficient snapshot per point on
 the GPU. With `store=false`, `on_result` receives an owned snapshot but the path
 does not retain it. Explicit CPU copies still incur a transfer.
 
+Julia's garbage collector does not see device memory. If GPU memory grows in
+a long-lived process, call `release_memory(CUDA.reclaim)` after dropping
+solvers, results or designs. `release_memory_callback(CUDA.reclaim)`
+is the same as an `on_result` callback. See `docs/performance.md`.
+
 For grouped model selection, `ordered_group_folds` keeps whole days (or
 other supplied groups) together, and `cross_validate` evaluates shared
 `lambda/lambda_max` ratios with a fresh training-only `lambda_max` in each

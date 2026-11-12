@@ -58,17 +58,25 @@ function block_dual_gap(problem::BlockLassoRidgeProblem, x, z,
     problem.z_constraint == :nonnegative && minimum(z) < 0 &&
         throw(ArgumentError("z must be nonnegative"))
     residual = problem.A * x + problem.B * z - problem.b
-    primal = _loss_value(problem.loss, residual) +
-             lambda * _penalty_value(problem.penalty, x) +
-             0.5 * ridge * sum(abs2, z)
+    primal = _block_primal(problem, x, z, lambda, ridge, residual)
     u = _loss_derivative!(problem.loss, residual)
-    gx = adjoint(problem.A) * u
+    return _block_gap_from_dual(problem, primal, u, adjoint(problem.A) * u,
+                                adjoint(problem.B) * u, lambda, ridge)
+end
+
+# The two halves of the gap, shared by the allocating public function above
+# and the solver's workspace version (`_fista_gap`). Neither allocates arrays.
+_block_primal(problem, x, z, lambda, ridge, residual) =
+    _loss_value(problem.loss, residual) +
+    lambda * _penalty_value(problem.penalty, x) +
+    0.5 * ridge * sum(abs2, z)
+
+# `u = ψ(Ax+Bz-b)`, `gx = A'u`, `gz = B'u`.
+function _block_gap_from_dual(problem, primal, u, gx, gz, lambda, ridge)
     scale, penalty_dual = _penalty_dual(problem.penalty, gx, lambda,
                                         problem.x_constraint)
-    gz = adjoint(problem.B) * u
     ridge_dual = problem.z_constraint == :signed ?
-                 sum(abs2, gz) :
-                 sum(abs2, min.(gz, zero(eltype(gz))))
+                 sum(abs2, gz) : _negative_part_energy(gz)
     gap = primal + _loss_conjugate(problem.loss, u) / scale^2 +
           dot(problem.b, u) / scale +
           ridge_dual / (2 * ridge * scale^2) + penalty_dual / scale^2
@@ -191,7 +199,8 @@ end
 
 """
 Reusable FISTA solver for the sparse-plus-ridge block objective. CPU dense
-designs materialize `[A B]`; other designs use a matrix-free block operator.
+designs materialize `[A B]`; all other designs (CPU sparse, and dense or CSR
+device arrays) use a matrix-free block operator that stores no design copy.
 """
 mutable struct BlockFISTASolver{P,S,T}
     problem::P
@@ -200,6 +209,10 @@ mutable struct BlockFISTASolver{P,S,T}
     ridge::T
     step::T
 end
+
+# Dense matrix stored in host memory (an `Array`, or a strided view of one).
+_host_dense(M) = M isa StridedMatrix && _root_array(M) isa Array
+_root_array(M) = parent(M) === M ? M : _root_array(parent(M))
 
 function BlockFISTASolver(problem::BlockLassoRidgeProblem, ridge;
                           step=:auto, stop=DualGapStop(), x0=nothing,
@@ -222,7 +235,10 @@ function BlockFISTASolver(problem::BlockLassoRidgeProblem, ridge;
         throw(ArgumentError("x0 must be nonnegative"))
     problem.z_constraint == :nonnegative && minimum(z_initial) < 0 &&
         throw(ArgumentError("z0 must be nonnegative"))
-    dense_cpu = problem.A isa StridedMatrix && problem.B isa StridedMatrix
+    # Only host-memory dense designs are materialized. A dense device array is
+    # also a `StridedMatrix`, but copying it would hold a second design on the
+    # device for the solver's lifetime, invisible to Julia's garbage collector.
+    dense_cpu = _host_dense(problem.A) && _host_dense(problem.B)
     combined = dense_cpu ? hcat(problem.A, problem.B) :
                BlockDesign(problem.A, problem.B, problem.b)
     # The two constituent matrices and b were validated by the block problem.
@@ -288,9 +304,43 @@ function _fista_prox!(solver::BlockFISTASolver, step, lambda)
     return nothing
 end
 
-_fista_kkt(solver::BlockFISTASolver, lambda) =
-    block_kkt_residual(solver.problem, _block_sparse(solver),
-                       _block_smooth(solver), lambda, solver.ridge)
+# Workspace versions of the optimality checks. They overwrite the workspace
+# residual and gradient, which are free once the prox step is done.
+# Write `[A B]·coefficients - b` into the workspace residual and return it.
+function _block_workspace_residual!(solver::BlockFISTASolver)
+    p, base = solver.problem, solver.base
+    mul!(base.residual, base.problem.A, base.x)
+    @. base.residual = base.residual - p.b
+    return base.residual
+end
+
+# Write `[A B]'u` into the workspace gradient; return its two blocks as views.
+function _block_workspace_gradient!(solver::BlockFISTASolver, u)
+    base, nx = solver.base, solver.nx
+    mul!(base.gradient, adjoint(base.problem.A), u)
+    return view(base.gradient, 1:nx),
+           view(base.gradient, nx+1:length(base.gradient))
+end
+
+# Same quantity as `block_kkt_residual`, computed in the workspace: the prox
+# output needs no validation and no array is allocated.
+function _fista_kkt(solver::BlockFISTASolver, lambda)
+    p, base, nx = solver.problem, solver.base, solver.nx
+    x, z = _block_sparse(solver), _block_smooth(solver)
+    u = _loss_derivative!(p.loss, _block_workspace_residual!(solver))
+    gx, gz = _block_workspace_gradient!(solver, u)
+    gz .+= solver.ridge .* z
+    vx = view(base.prox_input, 1:nx)
+    vz = view(base.prox_input, nx+1:length(base.prox_input))
+    vx .= _kkt_violation.(p.penalty, x, gx, lambda,
+                          p.x_constraint == :nonnegative)
+    if p.z_constraint == :nonnegative
+        @. vz = ifelse(z > 0, abs(gz), max(-gz, 0))
+    else
+        @. vz = abs(gz)
+    end
+    return max(maximum(vx), maximum(vz))
+end
 
 # The dual certificate needs both penalties to be positive.
 _fista_gap_degenerate(solver::BlockFISTASolver, lambda) =
@@ -303,9 +353,16 @@ function _fista_kkt_scale(solver::BlockFISTASolver)
                norm(_loss_correlations(p.B, p.b, p.loss), Inf), 1)
 end
 
-_fista_gap(solver::BlockFISTASolver, lambda) =
-    block_dual_gap(solver.problem, _block_sparse(solver),
-                   _block_smooth(solver), lambda, solver.ridge)
+# Same quantity as `block_dual_gap`, computed in the workspace.
+function _fista_gap(solver::BlockFISTASolver, lambda)
+    p = solver.problem
+    residual = _block_workspace_residual!(solver)
+    primal = _block_primal(p, _block_sparse(solver), _block_smooth(solver),
+                           lambda, solver.ridge, residual)
+    u = _loss_derivative!(p.loss, residual)
+    gx, gz = _block_workspace_gradient!(solver, u)
+    return _block_gap_from_dual(p, primal, u, gx, gz, lambda, solver.ridge)
+end
 
 _fista_gap_tolerance(solver::BlockFISTASolver, stop) =
     _dual_gap_tolerance(solver.problem.b, solver.problem.loss, stop)

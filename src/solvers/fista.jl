@@ -131,8 +131,10 @@ _fista_kkt_scale(solver::FISTASolver) =
     max(norm(_loss_correlations(solver.problem.A, solver.problem.b,
                                 solver.problem.loss), Inf), 1)
 
+# Reuses the workspace like `_fista_kkt`; the prox output needs no validation.
 _fista_gap(solver::FISTASolver, lambda) =
-    lasso_dual_gap(solver.problem, solver.x, lambda)
+    _lasso_dual_gap!(solver.problem, solver.x, lambda, solver.residual,
+                     solver.gradient)
 
 _fista_gap_tolerance(solver::FISTASolver, stop) =
     _dual_gap_tolerance(solver.problem.b, solver.problem.loss, stop)
